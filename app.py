@@ -15,7 +15,7 @@ st.set_page_config(
 st.title("🌍 Country Dashboard")
 
 # -----------------------------
-# Load data safely
+# Load data
 # -----------------------------
 @st.cache_data
 def load_data():
@@ -34,13 +34,13 @@ data, hex_df, geojson = load_data()
 st.success("Data loaded successfully ✅")
 
 # -----------------------------
-# Clean column names
+# Clean columns
 # -----------------------------
 data.columns = data.columns.str.strip()
 hex_df.columns = hex_df.columns.str.strip()
 
 # -----------------------------
-# Detect ISO column automatically
+# Detect ISO column
 # -----------------------------
 if "ISO3" in data.columns:
     iso_col = "ISO3"
@@ -49,19 +49,16 @@ elif "iso_alpha" in data.columns:
 elif "ISO3_code" in data.columns:
     iso_col = "ISO3_code"
 else:
-    st.error("❌ No ISO country code column found in dataset")
+    st.error("❌ No ISO country code column found")
     st.stop()
 
 # -----------------------------
-# Sidebar
+# Sidebar controls
 # -----------------------------
 st.sidebar.header("🌐 Controls")
 
-country_list = ["All"] + sorted(data[iso_col].dropna().unique())
-selected_country = st.sidebar.selectbox(
-    "Select Country",
-    country_list
-)
+country_list = sorted(data[iso_col].dropna().unique())
+selected_country = st.sidebar.selectbox("Select Country", country_list)
 
 metric = st.sidebar.selectbox(
     "Select Metric",
@@ -71,37 +68,17 @@ metric = st.sidebar.selectbox(
 # -----------------------------
 # Filter data
 # -----------------------------
-if selected_country == "All":
-    filtered = data.copy()
-else:
-    filtered = data[data[iso_col] == selected_country]
-
-# -----------------------------
-# Merge colors
-# -----------------------------
-if "hex" in hex_df.columns:
-    color_col = "hex"
-elif "HEX" in hex_df.columns:
-    color_col = "HEX"
-else:
-    color_col = None
-
-if color_col:
-    filtered = filtered.merge(
-        hex_df[[iso_col, color_col]],
-        on=iso_col,
-        how="left"
-    )
+filtered = data[data[iso_col] == selected_country]
 
 # -----------------------------
 # World Map
 # -----------------------------
 fig = px.choropleth(
-    filtered,
+    data,
     geojson=geojson,
     locations=iso_col,
     color=metric,
-    hover_name="Location" if "Location" in filtered.columns else iso_col,
+    hover_name="Location" if "Location" in data.columns else iso_col,
     color_continuous_scale="Viridis",
     projection="natural earth"
 )
@@ -120,12 +97,13 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------------
-# Country Details (popup-style section)
+# POPUP FLOAT WINDOW (MODAL)
 # -----------------------------
-st.subheader("📊 Country Details")
+@st.dialog("📊 Country Details")
+def show_country_details(df):
+    st.subheader(f"Details for {selected_country}")
+    st.dataframe(df, use_container_width=True)
 
-if selected_country != "All":
-    st.dataframe(filtered)
-else:
-    st.info("Select a country to view detailed data")
-
+# Button to open popup
+if st.button("📊 View Country Details"):
+    show_country_details(filtered)
