@@ -1,47 +1,46 @@
-# app.py
+# Step 0: Import libraries
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import json
 
-# Title
-st.title("🌍 Interactive World Map Dashboard")
-st.markdown("This map is built using HEX.csv + countries.geo.json")
+# Step 1: Load datasets
+@st.cache_data
+def load_data():
+    df = pd.read_csv("final_with_socio_cleaned.csv")
+    with open("countries.geo.json") as f:
+        geojson = json.load(f)
+    hex_df = pd.read_csv("Hex.csv")
+    return df, geojson, hex_df
 
-# Load CSV
-hex_df = pd.read_csv("HEX.csv")
+data, geojson, hex_df = load_data()
 
-# Clean CSV: fill missing figma_hex with default color
-hex_df["figma_hex"] = hex_df["figma_hex"].fillna("#808080")  # gray for missing
+# Step 2: Page title
+st.set_page_config(page_title="Global Health Dashboard", layout="wide")
+st.title("🌍 Global Health & Socio-Economic Dashboard")
 
-# Add color key
-hex_df["color_key"] = hex_df["figma_hex"]
+# Step 3: Country selection
+countries = ["All"] + sorted(data['iso_alpha'].unique())
+selected_country = st.selectbox("Select a Country", countries)
 
-# Load GeoJSON
-with open("countries.geo.json", "r", encoding="utf-8") as f:
-    geojson_data = json.load(f)
+# Step 4: Filter data
+if selected_country != "All":
+    filtered_data = data[data['iso_alpha'] == selected_country]
+else:
+    filtered_data = data
 
-# Create choropleth
-fig = px.choropleth(
-    hex_df,
-    geojson=geojson_data,
-    locations="iso_alpha",
-    color="color_key",
-    hover_name="country",
-    color_discrete_map="identity",
-    projection="natural earth",
+# Step 5: Display dataframe
+st.subheader("Data Preview")
+st.dataframe(filtered_data.head(20))
+
+# Step 6: Example Plot
+st.subheader("Life Expectancy vs HDI")
+fig = px.scatter(
+    filtered_data,
+    x="HDI",
+    y="LEx",
+    color="iso_alpha",
+    hover_data=["iso_alpha", "year"],
+    title="Life Expectancy vs HDI"
 )
-
-fig.update_geos(
-    showcountries=True, countrycolor="black",
-    showcoastlines=True, coastlinecolor="gray",
-    showland=True, landcolor="lightgray",
-)
-
-fig.update_layout(
-    margin={"r":0,"t":0,"l":0,"b":0},
-    height=600,
-)
-
-# Show figure
 st.plotly_chart(fig, use_container_width=True)
