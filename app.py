@@ -1,46 +1,55 @@
-# Step 0: Import libraries
+# app.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import json
+import os
 
-# Step 1: Load datasets
+# Ensure all files are loaded relative to this script
+BASE_DIR = os.path.dirname(__file__)
+
 @st.cache_data
 def load_data():
-    df = pd.read_csv("final_with_socio_cleaned.csv")
-    with open("countries.geo.json") as f:
+    # Load cleaned socio-economic data
+    df = pd.read_csv(os.path.join(BASE_DIR, "final_with_socio_cleaned.csv"))
+    
+    # Load GeoJSON for countries
+    with open(os.path.join(BASE_DIR, "countries.geo.json")) as f:
         geojson = json.load(f)
-    hex_df = pd.read_csv("Hex.csv")
+    
+    # Load HEX color mapping
+    hex_df = pd.read_csv(os.path.join(BASE_DIR, "Hex.csv"))
+    
     return df, geojson, hex_df
 
+# Load datasets
 data, geojson, hex_df = load_data()
 
-# Step 2: Page title
-st.set_page_config(page_title="Global Health Dashboard", layout="wide")
-st.title("🌍 Global Health & Socio-Economic Dashboard")
+st.title("🌍 Global Health & Demographics Dashboard")
 
-# Step 3: Country selection
-countries = ["All"] + sorted(data['iso_alpha'].unique())
-selected_country = st.selectbox("Select a Country", countries)
+# Country selection
+country_list = [""] + sorted(data['ISO3'].unique())
+selected_country = st.selectbox("Select a Country", country_list)
 
-# Step 4: Filter data
-if selected_country != "All":
-    filtered_data = data[data['iso_alpha'] == selected_country]
+# Filter data if a country is selected
+if selected_country:
+    country_data = data[data['ISO3'] == selected_country]
 else:
-    filtered_data = data
+    country_data = data.copy()
 
-# Step 5: Display dataframe
-st.subheader("Data Preview")
-st.dataframe(filtered_data.head(20))
-
-# Step 6: Example Plot
-st.subheader("Life Expectancy vs HDI")
-fig = px.scatter(
-    filtered_data,
-    x="HDI",
-    y="LEx",
-    color="iso_alpha",
-    hover_data=["iso_alpha", "year"],
-    title="Life Expectancy vs HDI"
+# Example Plotly map
+fig = px.choropleth(
+    country_data,
+    geojson=geojson,
+    locations="ISO3",
+    color="HDI",  # Example: Human Development Index
+    hover_name="Location",
+    color_continuous_scale="Viridis"
 )
+fig.update_geos(fitbounds="locations", visible=False)
+
 st.plotly_chart(fig, use_container_width=True)
+
+# Optional: show HEX color mapping
+if st.checkbox("Show HEX color mapping"):
+    st.dataframe(hex_df)
