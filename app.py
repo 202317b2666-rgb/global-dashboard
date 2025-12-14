@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import json
-import os
+import plotly.graph_objects as go
+from streamlit_float import float_init, float_box
 
 # ---------------------------------
 # Page config
@@ -12,125 +12,155 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🌍 Global Health Dashboard")
+float_init()
 
 # ---------------------------------
 # Load data
 # ---------------------------------
 @st.cache_data
 def load_data():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    df = pd.read_csv("final_with_socio_cleaned.csv")
+    df["Year"] = df["Year"].astype(int)
 
-    data = pd.read_csv(os.path.join(BASE_DIR, "final_with_socio_cleaned.csv"))
-    hex_df = pd.read_csv(os.path.join(BASE_DIR, "Hex.csv"))
+    hex_df = pd.read_csv("Hex.csv")
+    hex_map = dict(zip(hex_df["iso_alpha"], hex_df["hex"]))
 
-    with open(os.path.join(BASE_DIR, "countries.geo.json"), "r", encoding="utf-8") as f:
-        geojson = json.load(f)
-
-    return data, hex_df, geojson
+    return df, hex_map
 
 
-data, hex_df, geojson = load_data()
-st.success("Data loaded successfully ✅")
+df, hex_map = load_data()
+years = sorted(df["Year"].unique())
 
 # ---------------------------------
-# Clean columns
+# Session state
 # ---------------------------------
-data.columns = data.columns.str.strip()
+if "show_popup" not in st.session_state:
+    st.session_state.show_popup = False
+
+if "selected_country" not in st.session_state:
+    st.session_state.selected_country = None
 
 # ---------------------------------
-# Detect ISO column
+# Title
 # ---------------------------------
-if "ISO3" in data.columns:
-    iso_col = "ISO3"
-elif "ISO3_code" in data.columns:
-    iso_col = "ISO3_code"
-elif "iso_alpha" in data.columns:
-    iso_col = "iso_alpha"
-else:
-    st.error("❌ ISO country code column not found")
-    st.stop()
+st.markdown(
+    "<h2 style='text-align:center'>🌍 Global Health Dashboard</h2>",
+    unsafe_allow_html=True
+)
 
 # ---------------------------------
-# Sidebar controls
+# Year slider (ALL YEARS)
 # ---------------------------------
-st.sidebar.header("🌐 Controls")
-
-year_min = int(data["Year"].min())
-year_max = int(data["Year"].max())
-
-selected_year = st.sidebar.slider(
+year = st.slider(
     "Select Year",
-    min_value=year_min,
-    max_value=year_max,
-    value=2020
-)
-
-country_list = sorted(data[iso_col].dropna().unique())
-selected_country = st.sidebar.selectbox("Select Country", country_list)
-
-metric = st.sidebar.selectbox(
-    "Select Metric",
-    [c for c in data.columns if c not in [iso_col, "Location", "Country", "Year"]]
+    min_value=min(years),
+    max_value=max(years),
+    value=max(years),
+    step=1
 )
 
 # ---------------------------------
-# Filter data
+# World Map
 # ---------------------------------
-year_df = data[data["Year"] == selected_year]
-country_df = data[data[iso_col] == selected_country]
+map_df = df[df["Year"] == year]
 
-# ---------------------------------
-# World map
-# ---------------------------------
 fig = px.choropleth(
-    year_df,
-    geojson=geojson,
-    locations=iso_col,
-    color=metric,
-    hover_name="Location" if "Location" in data.columns else iso_col,
+    map_df,
+    locations="ISO3",
+    color="HDI",
+    hover_name="Country",
     color_continuous_scale="Viridis",
-    projection="natural earth"
-)
-
-fig.update_geos(
-    showcountries=True,
-    showcoastlines=True,
-    fitbounds="locations"
+    title=f"Global HDI Map - {year}"
 )
 
 fig.update_layout(
-    height=600,
-    margin={"r":0,"t":0,"l":0,"b":0}
+    geo=dict(
+        showframe=False,
+        showcoastlines=False,
+        bgcolor="#4fa3d1"  # sea blue
+    ),
+    paper_bgcolor="black",
+    plot_bgcolor="black"
 )
 
-st.plotly_chart(fig, use_container_width=True)
+selected = st.plotly_chart(fig, use_container_width=True)
 
 # ---------------------------------
-# COUNTRY DETAILS (Popup-like panel)
+# Detect country click
 # ---------------------------------
-st.markdown("## 📊 Country Details")
+if selected and "points" in selected:
+    iso = selected["points"][0]["location"]
+    st.session_state.selected_country = iso
+    st.session_state.show_popup = True
 
-with st.expander(f"📌 View details for {selected_country}", expanded=True):
+# ---------------------------------
+# Floating Popup
+# ---------------------------------
+if st.session_state.show_popup and st.session_state.selected_country:
 
-    latest_row = country_df[country_df["Year"] == selected_year]
+    iso = st.session_state.selected_country
+    country_df = df[df["ISO3"] == iso]
 
-    if not latest_row.empty:
-        st.markdown("### 🧾 Snapshot")
+    if not country_df.empty:
 
-        cols = st.columns(3)
-        for i, col in enumerate(latest_row.columns):
-            if col not in [iso_col, "Year", "Location", "Country"]:
-                cols[i % 3].metric(col, round(float(latest_row[col]), 2))
+        with float_box(
+            width="85%",
+            height="90vh",
+            left="7.5%",
+            top="5%",
+            background="#111",
+            border_radius="12px",
+            padding="20px",
+            shadow=True,
+            z_index=999
+        ):
 
-    st.markdown("### 📈 Trend Over Time")
+            # Header
+            col1, col2 = st.columns([10, 1])
+            with col1:
+                st.markdown(
+                    f"### {country_df.iloc[0]['Country']}"
+                )
+            with col2:
+                if st.button("❌"):
+                    st.session_state.show_popup = False
 
-    trend_fig = px.line(
-        country_df.sort_values("Year"),
-        x="Year",
-        y=metric,
-        markers=True,
-        title=f"{metric} Trend ({selected_country})"
-    )
+            st.markdown("---")
 
-    st.plotly_chart(trend_fig, use_container_width=True)
+            # Indicators
+            indicators = {
+                "HDI": "HDI",
+                "GDP per Capita": "GDP_per_capita",
+                "Life Expectancy": "Life_Expectancy",
+                "Median Age": "Median_Age_Est",
+                "Gini Index": "Gini_Index",
+                "COVID Deaths / mil": "COVID_Deaths",
+                "Population Density": "Population_Density"
+            }
+
+            # Charts grid
+            cols = st.columns(2)
+            i = 0
+
+            for title, col in indicators.items():
+                fig_line = go.Figure()
+                fig_line.add_trace(
+                    go.Scatter(
+                        x=country_df["Year"],
+                        y=country_df[col],
+                        mode="lines+markers",
+                        name=title
+                    )
+                )
+                fig_line.update_layout(
+                    title=title,
+                    template="plotly_dark",
+                    height=300,
+                    margin=dict(t=40, b=30),
+                    xaxis_title="Year"
+                )
+
+                with cols[i % 2]:
+                    st.plotly_chart(fig_line, use_container_width=True)
+
+                i += 1
