@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from streamlit_plotly_events import plotly_events
+# Removed: from streamlit_plotly_events import plotly_events
 
 # -----------------------------
 # Init & Config
@@ -14,40 +14,45 @@ st.set_page_config(
 )
 
 # -----------------------------
-# Load Data
+# Load Data (with Cleaning)
 # -----------------------------
 @st.cache_data
 def load_data():
     # Load Main Data
     df = pd.read_csv("final_with_socio_cleaned.csv")
     df["Year"] = df["Year"].astype(int)
-
-    # Load Hex Data (Optional: kept based on your previous code)
+    
+    # IMPORTANT FIX: Strip whitespace from key columns for reliable matching
+    df["ISO3"] = df["ISO3"].str.strip()
+    df["Country"] = df["Country"].str.strip()
+    
+    # Load Hex Data (Optional)
     try:
         hex_df = pd.read_csv("Hex.csv")
         hex_df.columns = [c.lower() for c in hex_df.columns]
+        hex_df["iso_alpha"] = hex_df["iso_alpha"].str.strip() 
         hex_map = dict(zip(hex_df["iso_alpha"], hex_df["hex"]))
     except FileNotFoundError:
-        hex_map = {} # Fallback if file missing
+        hex_map = {} 
 
     return df, hex_map
 
-# Load the data
+# Load the data and handle potential errors
 try:
     df, hex_map = load_data()
     years = sorted(df["Year"].unique())
 except Exception as e:
-    st.error(f"Error loading data: {e}")
+    st.error(f"Error loading data. Please check 'final_with_socio_cleaned.csv': {e}")
     st.stop()
 
 # -----------------------------
 # Dialog Function ( The Popup )
 # -----------------------------
+# Note: st.dialog is used, but triggered by st.query_params, not session_state
 @st.dialog("Country Overview")
 def show_country_details(iso_code):
     """
-    This function renders the popup modal.
-    It runs inside a separate container on top of the map.
+    Renders the charts inside the Streamlit dialog modal.
     """
     country_data = df[df["ISO3"] == iso_code]
     
@@ -58,7 +63,6 @@ def show_country_details(iso_code):
     country_name = country_data.iloc[0]["Country"]
     st.header(country_name)
 
-    # Define the charts you want to show
     indicators = {
         "HDI": "HDI",
         "GDP per Capita": "GDP_per_capita",
@@ -69,11 +73,9 @@ def show_country_details(iso_code):
         "Population Density": "Population_Density"
     }
 
-    # Create a grid layout for charts
     cols = st.columns(2)
 
     for i, (title, col_name) in enumerate(indicators.items()):
-        # Only plot if column exists in CSV
         if col_name in country_data.columns:
             fig_line = go.Figure()
             fig_line.add_trace(go.Scatter(
@@ -122,7 +124,7 @@ fig = px.choropleth(
     color="HDI",
     hover_name="Country",
     color_continuous_scale="Viridis",
-    range_color=[0, 1], # Fixes scale stability across years
+    range_color=[0, 1],
     title=f"Global HDI Map – {year}"
 )
 
@@ -132,7 +134,7 @@ fig.update_layout(
         showcoastlines=True,
         coastlinecolor="white",
         showocean=True,
-        oceancolor="#0E1117",  # Matches Streamlit dark theme better
+        oceancolor="#0E1117",
         showland=True,
         landcolor="#1a1a1a",
         projection_type="natural earth" 
@@ -144,25 +146,44 @@ fig.update_layout(
 )
 
 # -----------------------------
-# Render Map & Capture Click
+# Use Native Plotly Click Event (The FIX)
 # -----------------------------
-# We use a container to keep the layout tight
-with st.container():
-    selected_points = plotly_events(
-        fig,
-        click_event=True,
-        hover_event=False,
-        select_event=False,
-        override_height=600,
-        override_width="100%"
-    )
+# By giving the chart a key, Streamlit captures click events automatically
+st.plotly_chart(
+    fig, 
+    use_container_width=True, 
+    on_select="rerun", # Rerun the app when a point is selected
+    selection_mode="points", # We want to select points (countries)
+    key="global_map"
+)
 
 # -----------------------------
-# Trigger Popup
+# Trigger Dialog using Query Parameters (The FIX)
 # -----------------------------
-if selected_points:
-    # Extract the ISO code from the clicked point
-    clicked_iso = selected_points[0].get("location", None) # Safe get
+# The selection data is stored in st.session_state["global_map"]
+selection = st.session_state.get("global_map")
+
+# Check if points were selected
+if selection and selection.get("points"):
+    # The customdata field holds the underlying data we want (ISO3 in this case)
+    # For choropleth, the location in the data is the ISO3 code
+    clicked_iso = selection["points"][0]["location"]
     
-    if clicked_iso:
-        show_country_details(clicked_iso)
+    # Store the clicked ISO in the URL query parameters
+    st.query_params["selected_country"] = clicked_iso
+    st.query_params["open_dialog"] = "true" 
+    st.rerun()
+
+# -----------------------------
+# Show Dialog
+# -----------------------------
+# The page reloads (reruns) and checks the URL parameters
+if st.query_params.get("open_dialog") == "true":
+    iso_code = st.query_params.get("selected_country")
+    if iso_code:
+        show_country_details(iso_code)
+    
+    # After the dialog is closed by its internal 'X' button, 
+    # it clears the query params so it doesn't immediately reappear on the next run
+    st.query_params.pop("selected_country", None)
+    st.query_params.pop("open_dialog", None)
