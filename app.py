@@ -67,8 +67,12 @@ fig = px.choropleth(
 fig.update_layout(
     geo=dict(
         showframe=False,
-        showcoastlines=False,
-        bgcolor="#1f77b4"   # sea blue
+        showcoastlines=True,
+        coastlinecolor="white",
+        showocean=True,
+        oceancolor="#1f77b4",   # sea blue
+        showland=True,
+        landcolor="rgba(0,0,0,0)"
     ),
     paper_bgcolor="black",
     plot_bgcolor="black"
