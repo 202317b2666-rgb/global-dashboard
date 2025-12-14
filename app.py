@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 st.set_page_config(
     page_title="Global Health Dashboard",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="auto" # Ensure sidebar is open or easily opened
 )
 
 # -----------------------------
@@ -49,15 +49,15 @@ except Exception as e:
     st.stop()
 
 # ----------------------------------------------------
-# Chart Function: Displays charts inside the Expander
+# Chart Function: Displays charts inside the Sidebar
 # ----------------------------------------------------
 def display_country_charts(iso_code, data_frame):
-    """Renders charts inside the dedicated Expander container."""
+    """Renders charts inside the dedicated Sidebar container."""
     
     country_data = data_frame[data_frame["ISO3"] == iso_code]
     
     if country_data.empty:
-        st.warning("No detailed historical data available.")
+        st.sidebar.warning("No detailed historical data available.")
         return
 
     # 1. Chart Logic
@@ -67,9 +67,8 @@ def display_country_charts(iso_code, data_frame):
         "COVID Deaths / mil": "COVID_Deaths", "Population Density": "Population_Density"
     }
 
-    cols = st.columns(2)
-
-    for i, (title, col_name) in enumerate(indicators.items()):
+    # Display all charts stacked vertically in the sidebar
+    for title, col_name in indicators.items():
         if col_name in country_data.columns:
             fig_line = go.Figure()
             fig_line.add_trace(go.Scatter(
@@ -78,16 +77,35 @@ def display_country_charts(iso_code, data_frame):
             ))
 
             fig_line.update_layout(
-                title=dict(text=title, font=dict(size=14)), template="plotly_dark", height=250,
+                title=dict(text=title, font=dict(size=14, color='white')), 
+                template="plotly_dark", height=200,
                 margin=dict(t=30, b=10, l=10, r=10),
-                xaxis=dict(title=None), yaxis=dict(showgrid=True, gridcolor='#333'),
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+                xaxis=dict(title=None, showgrid=False), yaxis=dict(showgrid=True, gridcolor='#333'),
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)" # Transparent background for sidebar
             )
+            
+            # Use st.sidebar for all elements inside the sidebar
+            st.sidebar.plotly_chart(fig_line, use_container_width=True)
 
-            with cols[i % 2]:
-                st.plotly_chart(fig_line, use_container_width=True)
 
+# ----------------------------------------------------
+# Click Detection & State Management
+# ----------------------------------------------------
 
+if 'selected_iso' not in st.session_state:
+    st.session_state.selected_iso = None
+
+def set_selected_country():
+    """Reads the latest selection from the map and updates the state."""
+    selection = st.session_state.get("global_map")
+    
+    if selection and selection.get("points"):
+        clicked_iso = selection["points"][0]["location"]
+        st.session_state.selected_iso = clicked_iso
+        st.rerun() # Rerun immediately after state update
+    else:
+        st.session_state.selected_iso = None
+    
 # -----------------------------
 # Main Layout
 # -----------------------------
@@ -112,53 +130,29 @@ fig.update_layout(
     paper_bgcolor="#0E1117", plot_bgcolor="#0E1117", margin=dict(t=50, b=0, l=0, r=0), coloraxis_colorbar=dict(title="HDI")
 )
 
-# ----------------------------------------------------
-# Click Detection & Expander Management (THE RELIABLE FIX)
-# ----------------------------------------------------
-
-if 'selected_iso' not in st.session_state:
-    st.session_state.selected_iso = None
-
-def set_selected_country():
-    """Reads the latest selection from the map and updates the state."""
-    selection = st.session_state.get("global_map")
-    
-    if selection and selection.get("points"):
-        clicked_iso = selection["points"][0]["location"]
-        st.session_state.selected_iso = clicked_iso
-    else:
-        # User clicked on the ocean/unmapped area
-        st.session_state.selected_iso = None
-    
 # Render the Map with the state update function
 st.plotly_chart(
     fig, 
     use_container_width=True, 
-    on_select=set_selected_country, # State is updated here
+    on_select=set_selected_country, 
     selection_mode="points",
     key="global_map" 
 )
 
 # ----------------------------------------------------
-# Display Charts in an Expander Below the Map
+# Trigger Sidebar Display
 # ----------------------------------------------------
-
-# If a country is selected, find its name for the expander title
-country_name_for_expander = "Historical Data"
-is_expander_open = False
+st.sidebar.title("Country Analysis")
 
 if st.session_state.selected_iso:
-    # Use the selected ISO to get the country name
+    # Get country name for sidebar title
     selected_country_data = df[df["ISO3"] == st.session_state.selected_iso]
-    if not selected_country_data.empty:
-        country_name = selected_country_data.iloc[0]["Country"]
-        country_name_for_expander = f"📊 Historical Analysis for {country_name}"
-        is_expander_open = True # Open the expander when a country is selected
-
-# Create the Expander
-with st.expander(country_name_for_expander, expanded=is_expander_open):
-    if st.session_state.selected_iso:
-        # Display the charts inside the open expander
-        display_country_charts(st.session_state.selected_iso, df)
-    else:
-        st.info("Click a country on the map above to view its historical health and economic data.")
+    country_name = selected_country_data.iloc[0]["Country"]
+    
+    st.sidebar.markdown(f"### 📈 Data for {country_name}")
+    st.sidebar.markdown("---")
+    
+    # Display all charts in the sidebar
+    display_country_charts(st.session_state.selected_iso, df)
+else:
+    st.sidebar.info("Click on a country in the map to view its historical data here.")
