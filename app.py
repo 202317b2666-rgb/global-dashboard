@@ -2,10 +2,12 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+
 from streamlit_float import float_init
+from streamlit_plotly_events import plotly_events
 
 # -----------------------------
-# Init floating support
+# Init
 # -----------------------------
 float_init()
 
@@ -23,10 +25,7 @@ def load_data():
     df["Year"] = df["Year"].astype(int)
 
     hex_df = pd.read_csv("Hex.csv")
-
-    # normalize column names
     hex_df.columns = [c.lower() for c in hex_df.columns]
-
     hex_map = dict(zip(hex_df["iso_alpha"], hex_df["hex"]))
 
     return df, hex_map
@@ -38,13 +37,10 @@ years = sorted(df["Year"].unique())
 # -----------------------------
 # Header
 # -----------------------------
-st.markdown(
-    "<h2 style='text-align:center;'>🌍 Global Health Dashboard</h2>",
-    unsafe_allow_html=True
-)
+st.markdown("<h2 style='text-align:center;'>🌍 Global Health Dashboard</h2>", unsafe_allow_html=True)
 
 # -----------------------------
-# Year Slider (ALL YEARS)
+# Year Slider
 # -----------------------------
 year = st.slider(
     "Select Year",
@@ -55,14 +51,10 @@ year = st.slider(
 )
 
 # -----------------------------
-# Map Data
+# Map
 # -----------------------------
-map_df = df[df["Year"] == year].copy()
-map_df["color"] = map_df["ISO3"].map(hex_map)
+map_df = df[df["Year"] == year]
 
-# -----------------------------
-# World Map
-# -----------------------------
 fig = px.choropleth(
     map_df,
     locations="ISO3",
@@ -76,36 +68,41 @@ fig.update_layout(
     geo=dict(
         showframe=False,
         showcoastlines=False,
-        bgcolor="#1f77b4"  # sea blue
+        bgcolor="#1f77b4"   # sea blue
     ),
     paper_bgcolor="black",
     plot_bgcolor="black"
 )
 
-selected = st.plotly_chart(fig, use_container_width=True)
+# -----------------------------
+# Capture Click (IMPORTANT)
+# -----------------------------
+selected_points = plotly_events(
+    fig,
+    click_event=True,
+    hover_event=False,
+    select_event=False,
+    override_height=600,
+    key="map"
+)
 
 # -----------------------------
-# Popup State
+# State
 # -----------------------------
-if "selected_country" not in st.session_state:
-    st.session_state.selected_country = None
+if "selected_iso" not in st.session_state:
+    st.session_state.selected_iso = None
 
-# -----------------------------
-# Handle Click
-# -----------------------------
-if selected and isinstance(selected, dict):
-    if "points" in selected:
-        st.session_state.selected_country = selected["points"][0]["location"]
+if selected_points:
+    st.session_state.selected_iso = selected_points[0]["location"]
 
 # -----------------------------
 # Floating Popup
 # -----------------------------
-if st.session_state.selected_country:
+if st.session_state.selected_iso:
 
-    iso = st.session_state.selected_country
+    iso = st.session_state.selected_iso
     country_df = df[df["ISO3"] == iso]
-
-    country_name = country_df.iloc[0]["Country"]
+    country = country_df.iloc[0]["Country"]
 
     popup = st.container()
     popup.float(
@@ -114,17 +111,14 @@ if st.session_state.selected_country:
         transform="translateX(-50%)",
         width="90%",
         height="90%",
-        z_index=999,
         background="#111",
-        border_radius="10px",
+        z_index=999,
+        border_radius="12px",
         padding="20px"
     )
 
     with popup:
-        st.markdown(
-            f"<h3 style='text-align:center;'>{country_name}</h3>",
-            unsafe_allow_html=True
-        )
+        st.markdown(f"<h3 style='text-align:center;'>{country}</h3>", unsafe_allow_html=True)
 
         indicators = {
             "HDI": "HDI",
@@ -138,8 +132,7 @@ if st.session_state.selected_country:
 
         cols = st.columns(2)
 
-        i = 0
-        for title, col in indicators.items():
+        for i, (title, col) in enumerate(indicators.items()):
             fig_line = go.Figure()
             fig_line.add_trace(go.Scatter(
                 x=country_df["Year"],
@@ -158,7 +151,5 @@ if st.session_state.selected_country:
             with cols[i % 2]:
                 st.plotly_chart(fig_line, use_container_width=True)
 
-            i += 1
-
         if st.button("❌ Close"):
-            st.session_state.selected_country = None
+            st.session_state.selected_iso = None
