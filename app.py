@@ -2,58 +2,18 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-# Removed: from streamlit_plotly_events import plotly_events
-
-# -----------------------------
-# Init & Config
-# -----------------------------
-st.set_page_config(
-    page_title="Global Health Dashboard",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
-# -----------------------------
-# Load Data (with Cleaning)
-# -----------------------------
-@st.cache_data
-def load_data():
-    # Load Main Data
-    df = pd.read_csv("final_with_socio_cleaned.csv")
-    df["Year"] = df["Year"].astype(int)
-    
-    # IMPORTANT FIX: Strip whitespace from key columns for reliable matching
-    df["ISO3"] = df["ISO3"].str.strip()
-    df["Country"] = df["Country"].str.strip()
-    
-    # Load Hex Data (Optional)
-    try:
-        hex_df = pd.read_csv("Hex.csv")
-        hex_df.columns = [c.lower() for c in hex_df.columns]
-        hex_df["iso_alpha"] = hex_df["iso_alpha"].str.strip() 
-        hex_map = dict(zip(hex_df["iso_alpha"], hex_df["hex"]))
-    except FileNotFoundError:
-        hex_map = {} 
-
-    return df, hex_map
-
-# Load the data and handle potential errors
-try:
-    df, hex_map = load_data()
-    years = sorted(df["Year"].unique())
-except Exception as e:
-    st.error(f"Error loading data. Please check 'final_with_socio_cleaned.csv': {e}")
-    st.stop()
+# ... (Keep the imports, Init, Load Data, and Dialog Function from the last answer) ...
 
 # -----------------------------
 # Dialog Function ( The Popup )
 # -----------------------------
-# Note: st.dialog is used, but triggered by st.query_params, not session_state
+# Note: The function signature must remain the same
 @st.dialog("Country Overview")
 def show_country_details(iso_code):
     """
     Renders the charts inside the Streamlit dialog modal.
     """
+    # ... (Keep the content of this function exactly the same) ...
     country_data = df[df["ISO3"] == iso_code]
     
     if country_data.empty:
@@ -100,12 +60,14 @@ def show_country_details(iso_code):
             with cols[i % 2]:
                 st.plotly_chart(fig_line, use_container_width=True)
 
+
 # -----------------------------
-# Main Layout
+# Main Layout (Starts here)
 # -----------------------------
 st.markdown("<h2 style='text-align:center;'>🌍 Global Health Dashboard</h2>", unsafe_allow_html=True)
 
 # Year Slider
+# ... (Keep the slider code) ...
 year = st.slider(
     "Select Year",
     min_value=int(min(years)),
@@ -118,6 +80,7 @@ year = st.slider(
 map_df = df[df["Year"] == year]
 
 # Create Map
+# ... (Keep the Plotly figure creation code) ...
 fig = px.choropleth(
     map_df,
     locations="ISO3",
@@ -145,45 +108,48 @@ fig.update_layout(
     coloraxis_colorbar=dict(title="HDI")
 )
 
-# -----------------------------
-# Use Native Plotly Click Event (The FIX)
-# -----------------------------
-# By giving the chart a key, Streamlit captures click events automatically
+# ----------------------------------------------------
+# Use Native Plotly Click Event & Session State (THE FIX)
+# ----------------------------------------------------
+
+# 1. Initialize session state variable to store selected ISO code
+if 'selected_iso' not in st.session_state:
+    st.session_state.selected_iso = None
+
+# 2. Define the callback function that runs on map click
+def handle_map_selection():
+    """
+    Callback runs when the map selection changes.
+    The selection data is automatically stored in st.session_state["global_map"].
+    """
+    selection = st.session_state.get("global_map")
+    
+    if selection and selection.get("points"):
+        # Extract the ISO code from the clicked point
+        clicked_iso = selection["points"][0]["location"]
+        # Update the session state
+        st.session_state.selected_iso = clicked_iso
+    else:
+        # If no points are selected (e.g., user clicked blank space)
+        st.session_state.selected_iso = None
+
+# 3. Render the Map with the callback
 st.plotly_chart(
     fig, 
     use_container_width=True, 
-    on_select="rerun", # Rerun the app when a point is selected
-    selection_mode="points", # We want to select points (countries)
-    key="global_map"
+    on_select=handle_map_selection, # Runs the function above on click
+    selection_mode="points",
+    key="global_map" # The key where selection data is stored
 )
 
-# -----------------------------
-# Trigger Dialog using Query Parameters (The FIX)
-# -----------------------------
-# The selection data is stored in st.session_state["global_map"]
-selection = st.session_state.get("global_map")
-
-# Check if points were selected
-if selection and selection.get("points"):
-    # The customdata field holds the underlying data we want (ISO3 in this case)
-    # For choropleth, the location in the data is the ISO3 code
-    clicked_iso = selection["points"][0]["location"]
+# 4. Trigger Dialog based on Session State
+if st.session_state.selected_iso:
+    # We call the dialog function directly with the ISO code
+    show_country_details(st.session_state.selected_iso)
     
-    # Store the clicked ISO in the URL query parameters
-    st.query_params["selected_country"] = clicked_iso
-    st.query_params["open_dialog"] = "true" 
-    st.rerun()
-
-# -----------------------------
-# Show Dialog
-# -----------------------------
-# The page reloads (reruns) and checks the URL parameters
-if st.query_params.get("open_dialog") == "true":
-    iso_code = st.query_params.get("selected_country")
-    if iso_code:
-        show_country_details(iso_code)
-    
-    # After the dialog is closed by its internal 'X' button, 
-    # it clears the query params so it doesn't immediately reappear on the next run
-    st.query_params.pop("selected_country", None)
-    st.query_params.pop("open_dialog", None)
+    # IMPORTANT: The st.dialog includes a native 'X' button. 
+    # When the user clicks it, st.dialog handles hiding itself. 
+    # We need to manually clear the session state to prevent it from re-opening on the next interaction.
+    # However, since st.dialog does NOT trigger a rerun on close, we leave this line out for now
+    # and rely on the next click to reset selected_iso via the handle_map_selection callback.
+    pass
