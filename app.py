@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-# Removed: from streamlit_plotly_events import plotly_events (using native events)
 
 # -----------------------------
 # Init & Config
@@ -41,7 +40,6 @@ def load_data():
 df = None
 hex_map = {}
 years = [] 
-country_data = None # Initialize to prevent error later
 
 # Load the data and handle potential errors
 try:
@@ -60,12 +58,13 @@ if df.empty:
 # -----------------------------
 # Dialog Function ( The Popup )
 # -----------------------------
+# The dialog function now accepts the full DataFrame
 @st.dialog("Country Overview")
 def show_country_details(iso_code, data_frame):
     """
     Renders the charts inside the Streamlit dialog modal.
-    data_frame is passed explicitly to use the correct filtered data.
     """
+    # Filter for all years for the selected country
     country_data = data_frame[data_frame["ISO3"] == iso_code]
     
     if country_data.empty:
@@ -137,7 +136,7 @@ fig = px.choropleth(
     color="HDI",
     hover_name="Country",
     color_continuous_scale="Viridis",
-    range_color=[0, 1], # Ensures color scale is consistent
+    range_color=[0, 1],
     title=f"Global HDI Map – {year}"
 )
 
@@ -171,7 +170,6 @@ def handle_map_selection():
     """
     Callback runs when the map selection changes.
     """
-    # Get the data stored by the plotly_chart component with key="global_map"
     selection = st.session_state.get("global_map")
     
     if selection and selection.get("points"):
@@ -180,24 +178,23 @@ def handle_map_selection():
         st.session_state.selected_iso = clicked_iso
         st.rerun() # Rerun to launch the dialog immediately
     else:
+        # If the user clicks on the ocean, clear the state
         st.session_state.selected_iso = None
 
 # 3. Render the Map with the callback
 st.plotly_chart(
     fig, 
     use_container_width=True, 
-    on_select=handle_map_selection, # This is the action trigger
+    on_select=handle_map_selection, 
     selection_mode="points",
     key="global_map" 
 )
 
-# 4. Trigger Dialog based on Session State
+# 4. Trigger Dialog based on Session State (THE FINAL FIX)
 if st.session_state.selected_iso:
     # Use st.dialog to show the floating popup
     show_country_details(st.session_state.selected_iso, df)
     
-    # After the dialog shows, we clear the state.
-    # We MUST do this only *after* the dialog has been shown on the screen.
-    # The next interaction (or the dialog's close) will naturally rerun the app.
-    # We clear the state here to prevent infinite dialog loop if the user clicks out of it.
-    st.session_state.selected_iso = None
+    # We DO NOT clear the state here. The state remains active while the dialog is open.
+    # The next action (either closing the dialog or clicking a new country) 
+    # will trigger a rerun that either hides the dialog or updates it.
