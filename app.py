@@ -2,22 +2,74 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-# ... (Keep the imports, Init, Load Data, and Dialog Function from the last answer) ...
+# Removed: from streamlit_plotly_events import plotly_events (using native events)
+
+# -----------------------------
+# Init & Config
+# -----------------------------
+st.set_page_config(
+    page_title="Global Health Dashboard",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# -----------------------------
+# Load Data (with Robustness)
+# -----------------------------
+@st.cache_data
+def load_data():
+    df = pd.read_csv("final_with_socio_cleaned.csv")
+    df["Year"] = df["Year"].astype(int)
+    
+    # IMPORTANT FIX: Strip whitespace from key columns for reliable matching
+    df["ISO3"] = df["ISO3"].str.strip()
+    df["Country"] = df["Country"].str.strip()
+    
+    # Load Hex Data (Optional)
+    try:
+        hex_df = pd.read_csv("Hex.csv")
+        hex_df.columns = [c.lower() for c in hex_df.columns]
+        hex_df["iso_alpha"] = hex_df["iso_alpha"].str.strip() 
+        hex_map = dict(zip(hex_df["iso_alpha"], hex_df["hex"]))
+    except FileNotFoundError:
+        st.warning("Hex.csv not found. Map colors/details may be limited.")
+        hex_map = {} 
+
+    return df, hex_map
+
+# Global variables initialized to prevent NameError
+df = None
+hex_map = {}
+years = [] 
+country_data = None # Initialize to prevent error later
+
+# Load the data and handle potential errors
+try:
+    df, hex_map = load_data()
+    # Calculate years ONLY if data loading was successful
+    years = sorted(df["Year"].unique())
+except Exception as e:
+    st.error(f"FATAL ERROR: Failed to load data. Ensure 'final_with_socio_cleaned.csv' exists and is correct. Details: {e}")
+    df = pd.DataFrame() 
+    st.stop()
+    
+if df.empty:
+    st.warning("Data is empty after loading. Cannot display dashboard.")
+    st.stop()
 
 # -----------------------------
 # Dialog Function ( The Popup )
 # -----------------------------
-# Note: The function signature must remain the same
 @st.dialog("Country Overview")
-def show_country_details(iso_code):
+def show_country_details(iso_code, data_frame):
     """
     Renders the charts inside the Streamlit dialog modal.
+    data_frame is passed explicitly to use the correct filtered data.
     """
-    # ... (Keep the content of this function exactly the same) ...
-    country_data = df[df["ISO3"] == iso_code]
+    country_data = data_frame[data_frame["ISO3"] == iso_code]
     
     if country_data.empty:
-        st.warning("No detailed data available for this country.")
+        st.warning(f"No detailed historical data available for ISO code: {iso_code}")
         return
 
     country_name = country_data.iloc[0]["Country"]
@@ -62,12 +114,11 @@ def show_country_details(iso_code):
 
 
 # -----------------------------
-# Main Layout (Starts here)
+# Main Layout
 # -----------------------------
 st.markdown("<h2 style='text-align:center;'>🌍 Global Health Dashboard</h2>", unsafe_allow_html=True)
 
 # Year Slider
-# ... (Keep the slider code) ...
 year = st.slider(
     "Select Year",
     min_value=int(min(years)),
@@ -80,14 +131,13 @@ year = st.slider(
 map_df = df[df["Year"] == year]
 
 # Create Map
-# ... (Keep the Plotly figure creation code) ...
 fig = px.choropleth(
     map_df,
     locations="ISO3",
     color="HDI",
     hover_name="Country",
     color_continuous_scale="Viridis",
-    range_color=[0, 1],
+    range_color=[0, 1], # Ensures color scale is consistent
     title=f"Global HDI Map – {year}"
 )
 
@@ -109,7 +159,7 @@ fig.update_layout(
 )
 
 # ----------------------------------------------------
-# Use Native Plotly Click Event & Session State (THE FIX)
+# Native Plotly Click Event & Session State
 # ----------------------------------------------------
 
 # 1. Initialize session state variable to store selected ISO code
@@ -120,36 +170,34 @@ if 'selected_iso' not in st.session_state:
 def handle_map_selection():
     """
     Callback runs when the map selection changes.
-    The selection data is automatically stored in st.session_state["global_map"].
     """
+    # Get the data stored by the plotly_chart component with key="global_map"
     selection = st.session_state.get("global_map")
     
     if selection and selection.get("points"):
-        # Extract the ISO code from the clicked point
+        # The location field contains the ISO3 code for choropleth maps
         clicked_iso = selection["points"][0]["location"]
-        # Update the session state
         st.session_state.selected_iso = clicked_iso
+        st.rerun() # Rerun to launch the dialog immediately
     else:
-        # If no points are selected (e.g., user clicked blank space)
         st.session_state.selected_iso = None
 
 # 3. Render the Map with the callback
 st.plotly_chart(
     fig, 
     use_container_width=True, 
-    on_select=handle_map_selection, # Runs the function above on click
+    on_select=handle_map_selection, # This is the action trigger
     selection_mode="points",
-    key="global_map" # The key where selection data is stored
+    key="global_map" 
 )
 
 # 4. Trigger Dialog based on Session State
 if st.session_state.selected_iso:
-    # We call the dialog function directly with the ISO code
-    show_country_details(st.session_state.selected_iso)
+    # Use st.dialog to show the floating popup
+    show_country_details(st.session_state.selected_iso, df)
     
-    # IMPORTANT: The st.dialog includes a native 'X' button. 
-    # When the user clicks it, st.dialog handles hiding itself. 
-    # We need to manually clear the session state to prevent it from re-opening on the next interaction.
-    # However, since st.dialog does NOT trigger a rerun on close, we leave this line out for now
-    # and rely on the next click to reset selected_iso via the handle_map_selection callback.
-    pass
+    # After the dialog shows, we clear the state.
+    # We MUST do this only *after* the dialog has been shown on the screen.
+    # The next interaction (or the dialog's close) will naturally rerun the app.
+    # We clear the state here to prevent infinite dialog loop if the user clicks out of it.
+    st.session_state.selected_iso = None
