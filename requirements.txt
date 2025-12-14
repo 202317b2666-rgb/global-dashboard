@@ -3,3 +3,4 @@ pandas
 plotly
 streamlit-float
 streamlit-plotly-events
+streamlit-shadcn-ui
