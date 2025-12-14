@@ -1,18 +1,18 @@
+import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
-from streamlit_float import float_init, float_css
+from streamlit_float import float_init
 
 # -----------------------------
-# Page Config
+# Init floating support
 # -----------------------------
+float_init()
+
 st.set_page_config(
-    page_title="🌍 Global Health Dashboard",
+    page_title="Global Health Dashboard",
     layout="wide"
 )
-
-float_init()
 
 # -----------------------------
 # Load Data
@@ -33,7 +33,6 @@ def load_data():
 
 
 df, hex_map = load_data()
-
 years = sorted(df["Year"].unique())
 
 # -----------------------------
@@ -45,7 +44,7 @@ st.markdown(
 )
 
 # -----------------------------
-# Year Slider
+# Year Slider (ALL YEARS)
 # -----------------------------
 year = st.slider(
     "Select Year",
@@ -56,107 +55,110 @@ year = st.slider(
 )
 
 # -----------------------------
+# Map Data
+# -----------------------------
+map_df = df[df["Year"] == year].copy()
+map_df["color"] = map_df["ISO3"].map(hex_map)
+
+# -----------------------------
 # World Map
 # -----------------------------
-dff = df[df["Year"] == year]
-
 fig = px.choropleth(
-    dff,
+    map_df,
     locations="ISO3",
     color="HDI",
     hover_name="Country",
-    color_continuous_scale="Viridis"
+    color_continuous_scale="Viridis",
+    title=f"Global HDI Map – {year}"
 )
 
 fig.update_layout(
     geo=dict(
         showframe=False,
         showcoastlines=False,
-        bgcolor="#4da6ff"  # sea blue
+        bgcolor="#1f77b4"  # sea blue
     ),
-    paper_bgcolor="#0e1117",
-    plot_bgcolor="#0e1117",
-    margin=dict(l=0, r=0, t=30, b=0)
+    paper_bgcolor="black",
+    plot_bgcolor="black"
 )
 
-selected = st.plotly_chart(
-    fig,
-    use_container_width=True,
-    on_select="rerun"
-)
+selected = st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------------
-# Floating Popup Container
+# Popup State
 # -----------------------------
-popup_container = st.container()
-popup_container.float(float_css(
-    position="fixed",
-    top="5%",
-    left="50%",
-    transform="translateX(-50%)",
-    width="85%",
-    height="90%",
-    background="#111",
-    padding="20px",
-    border_radius="10px",
-    z_index="999",
-    overflow_y="auto"
-))
+if "selected_country" not in st.session_state:
+    st.session_state.selected_country = None
 
 # -----------------------------
-# Handle Selection (SAFE)
+# Handle Click
 # -----------------------------
-if isinstance(selected, dict) and "points" in selected and len(selected["points"]) > 0:
+if selected and isinstance(selected, dict):
+    if "points" in selected:
+        st.session_state.selected_country = selected["points"][0]["location"]
 
-    iso = selected["points"][0].get("location")
+# -----------------------------
+# Floating Popup
+# -----------------------------
+if st.session_state.selected_country:
 
-    if iso:
-        country_df = df[df["ISO3"] == iso]
+    iso = st.session_state.selected_country
+    country_df = df[df["ISO3"] == iso]
 
-        if not country_df.empty:
-            country_name = country_df.iloc[0]["Country"]
+    country_name = country_df.iloc[0]["Country"]
 
-            with popup_container:
-                st.markdown(
-                    f"<h3 style='text-align:center;'>{country_name}</h3>",
-                    unsafe_allow_html=True
-                )
+    popup = st.container()
+    popup.float(
+        top="5%",
+        left="50%",
+        transform="translateX(-50%)",
+        width="90%",
+        height="90%",
+        z_index=999,
+        background="#111",
+        border_radius="10px",
+        padding="20px"
+    )
 
-                indicators = {
-                    "HDI": "HDI",
-                    "GDP per Capita": "GDP_per_capita",
-                    "Life Expectancy": "Life_Expectancy",
-                    "Median Age": "Median_Age_Est",
-                    "Gini Index": "Gini_Index",
-                    "COVID Deaths / mil": "COVID_Deaths",
-                    "Population Density": "Population_Density"
-                }
+    with popup:
+        st.markdown(
+            f"<h3 style='text-align:center;'>{country_name}</h3>",
+            unsafe_allow_html=True
+        )
 
-                cols = st.columns(2)
+        indicators = {
+            "HDI": "HDI",
+            "GDP per Capita": "GDP_per_capita",
+            "Life Expectancy": "Life_Expectancy",
+            "Median Age": "Median_Age_Est",
+            "Gini Index": "Gini_Index",
+            "COVID Deaths / mil": "COVID_Deaths",
+            "Population Density": "Population_Density"
+        }
 
-                i = 0
-                for title, col in indicators.items():
-                    fig_line = go.Figure()
-                    fig_line.add_trace(go.Scatter(
-                        x=country_df["Year"],
-                        y=country_df[col],
-                        mode="lines+markers",
-                        name=title
-                    ))
+        cols = st.columns(2)
 
-                    fig_line.update_layout(
-                        title=title,
-                        template="plotly_dark",
-                        height=300,
-                        margin=dict(t=40, b=30),
-                        xaxis=dict(
-                            title="Year",
-                            tickmode="linear",
-                            dtick=5
-                        )
-                    )
+        i = 0
+        for title, col in indicators.items():
+            fig_line = go.Figure()
+            fig_line.add_trace(go.Scatter(
+                x=country_df["Year"],
+                y=country_df[col],
+                mode="lines+markers"
+            ))
 
-                    with cols[i % 2]:
-                        st.plotly_chart(fig_line, use_container_width=True)
+            fig_line.update_layout(
+                title=title,
+                template="plotly_dark",
+                height=250,
+                margin=dict(t=40, b=20),
+                xaxis=dict(title="Year", nticks=8)
+            )
 
-                    i += 1
+            with cols[i % 2]:
+                st.plotly_chart(fig_line, use_container_width=True)
+
+            i += 1
+
+        if st.button("❌ Close"):
+            st.session_state.selected_country = None
