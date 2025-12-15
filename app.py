@@ -2,8 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-# NEW IMPORT
-from streamlit_plotly_events import plotly_events 
+# We removed the dependency on streamlit-plotly-events
 
 # -----------------------------
 # 1. Page Config
@@ -14,7 +13,7 @@ st.set_page_config(
 )
 
 # -----------------------------
-# 2. Load Data (Corrected for column names and case)
+# 2. Load Data (Verified Correct)
 # -----------------------------
 @st.cache_data
 def load_data():
@@ -27,7 +26,6 @@ def load_data():
         st.stop()
         
     df.columns = [col.upper() for col in df.columns] 
-    
     df["YEAR"] = df["YEAR"].astype(int)
     df["ISO3"] = df["ISO3"].str.strip()
     df["COUNTRY"] = df["COUNTRY"].str.strip()
@@ -91,17 +89,17 @@ fig.update_layout(
 )
 
 # ----------------------------------------------------
-# 4. Render Map & Capture Click State (USING EXTERNAL COMPONENT)
+# 4. Render Map & Capture Click State (Standard Streamlit Rerun)
 # ----------------------------------------------------
 
-# Use the plotly_events component to wrap the figure
-# This is guaranteed to return click data and trigger a rerun
-selected_points = plotly_events(
-    fig, 
-    click_event=True, 
-    select_event=False, 
-    key="plotly_map_events",
-    override_height=fig.layout.height, # Ensure correct size
+# This method returns the selection data and forces a rerun.
+click_data = st.plotly_chart(
+    fig,
+    use_container_width=True,
+    # This is the key that tells Streamlit to look for clicks and rerun the script
+    on_select="rerun", 
+    selection_mode="points",
+    key="map_selection_key"
 )
 
 # -----------------------------
@@ -110,12 +108,14 @@ selected_points = plotly_events(
 st.markdown("---")
 st.markdown("## 📊 Country Detailed Analysis")
 
-# Check if the plotly_events component returned any data points
-if selected_points:
-    # The ISO code is located in the 'location' key of the first clicked point
-    iso = selected_points[0].get('location') 
+# Check if the map returned click data AND that data is available in session state
+if "map_selection_key" in st.session_state and st.session_state["map_selection_key"] and st.session_state["map_selection_key"].get("points"):
+    
+    # Extract the ISO code from the returned selection data
+    iso = st.session_state["map_selection_key"]["points"][0]["location"] 
 
     if iso:
+        # Filter the DataFrame for the selected country
         country_df = df[df["ISO3"] == iso].sort_values("YEAR")
 
         if not country_df.empty:
