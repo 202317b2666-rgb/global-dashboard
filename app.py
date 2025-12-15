@@ -12,32 +12,48 @@ st.set_page_config(
 )
 
 # -----------------------------
-# 2. Load Data
+# 2. Load Data (Corrected for column names and case)
 # -----------------------------
 @st.cache_data
 def load_data():
-    """Loads and processes both data files."""
+    """Loads and processes both data files using the explicit column names."""
     try:
-        # NOTE: Ensure these files are in the same directory as app.py
+        # Load dataframes
         df = pd.read_csv("final_with_socio_cleaned.csv")
         hex_df = pd.read_csv("Hex.csv")
     except FileNotFoundError as e:
+        # Display a clear error if files are missing
         st.error(f"Missing required file: {e.filename}. Please place it in the same directory.")
         st.stop()
         
-    df["Year"] = df["Year"].astype(int)
+    # --- Standardize and Clean final_with_socio_cleaned.csv (df) ---
+    # Convert all columns to uppercase for consistent access (e.g., 'Year' -> 'YEAR')
+    df.columns = [col.upper() for col in df.columns] 
+    
+    # Cleaning/Type Conversion
+    df["YEAR"] = df["YEAR"].astype(int)
     df["ISO3"] = df["ISO3"].str.strip()
-    df["Country"] = df["Country"].str.strip()
+    df["COUNTRY"] = df["COUNTRY"].str.strip()
 
+    # --- Standardize and Clean Hex.csv (hex_df) ---
+    # Rename the specific columns based on your provided headers
+    hex_df = hex_df.rename(columns={
+        "iso_alpha": "ISO3", # Rename 'iso_alpha' to 'ISO3'
+        "hex": "HEX"         # Rename 'hex' to 'HEX'
+    })
+    
+    # Strip whitespace from the code column
     hex_df["ISO3"] = hex_df["ISO3"].str.strip()
-    # Create the ISO3 to Hex color mapping dictionary
-    hex_map = dict(zip(hex_df["ISO3"], hex_df["hex"]))
-
+    
+    # Create the ISO3 to HEX color mapping dictionary
+    hex_map = dict(zip(hex_df["ISO3"], hex_df["HEX"])) 
+    
     return df, hex_map
 
 # Initialize global data
 df, hex_map = load_data()
-years = sorted(df["Year"].unique())
+# Use the corrected uppercase column name 'YEAR'
+years = sorted(df["YEAR"].unique())
 
 # -----------------------------
 # 3. Main Layout: Map & Controls
@@ -53,16 +69,16 @@ year = st.slider(
     step=1
 )
 
-# Filter Map Data for the selected year
-map_df = df[df["Year"] == year].copy()
-map_df["hex"] = map_df["ISO3"].map(hex_map)
+# Filter Map Data for the selected year (Use 'YEAR')
+map_df = df[df["YEAR"] == year].copy()
+map_df["HEX"] = map_df["ISO3"].map(hex_map)
 
 # World Map (Choropleth using Hex color mapping)
 fig = px.choropleth(
     map_df,
     locations="ISO3",
-    color="ISO3", # Color by ISO3 to use the discrete map
-    hover_name="Country",
+    color="ISO3", 
+    hover_name="COUNTRY", # Use 'COUNTRY'
     color_discrete_map=hex_map,
     title=f"Global Health Overview – {year}"
 )
@@ -84,13 +100,13 @@ fig.update_layout(
 )
 
 # -----------------------------
-# 4. Render Map & Capture Click State
+# 4. Render Map & Capture Click State (Stable Method)
 # -----------------------------
 # Use a key to store the click data in st.session_state
 st.plotly_chart(
     fig,
     use_container_width=True,
-    key="country_map" # <-- CRITICAL FOR STABLE CLICK DETECTION
+    key="country_map" 
 )
 
 # -----------------------------
@@ -105,30 +121,34 @@ click_data = st.session_state.get("country_map")
 if click_data and click_data.get("points"):
     # Extract the ISO code of the clicked country
     iso = click_data["points"][0]["location"]
-    country_df = df[df["ISO3"] == iso].sort_values("Year")
+    # Use 'YEAR' for sorting
+    country_df = df[df["ISO3"] == iso].sort_values("YEAR")
 
     if not country_df.empty:
-        country_name = country_df.iloc[0]["Country"]
+        # Use 'COUNTRY'
+        country_name = country_df.iloc[0]["COUNTRY"]
         st.subheader(country_name)
 
         # -------- KPIs --------
-        latest = country_df[country_df["Year"] == year].iloc[0] # Use iloc[0] for robust single row access
+        # Use 'YEAR'
+        latest = country_df[country_df["YEAR"] == year].iloc[0] 
 
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("HDI", round(latest["HDI"], 3))
-        k2.metric("Life Expectancy", f"{round(latest['Life_Expectancy'], 1)} Yrs")
-        k3.metric("GDP per Capita", f"${int(latest['GDP_per_capita']):,}")
-        k4.metric("Median Age", f"{round(latest['Median_Age_Est'], 1)} Yrs")
+        k1.metric("HDI", round(latest["HDI"], 3)) # Use 'HDI'
+        k2.metric("Life Expectancy", f"{round(latest['LIFE_EXPECTANCY'], 1)} Yrs") # Use 'LIFE_EXPECTANCY'
+        k3.metric("GDP per Capita", f"${int(latest['GDP_PER_CAPITA']):,}") # Use 'GDP_PER_CAPITA'
+        k4.metric("Median Age", f"{round(latest['MEDIAN_AGE_EST'], 1)} Yrs") # Use 'MEDIAN_AGE_EST'
 
         st.markdown("---")
 
         # -------- Historical Line Charts --------
         indicators = {
             "HDI": "HDI",
-            "Life Expectancy": "Life_Expectancy",
-            "GDP per Capita": "GDP_per_capita",
-            "Gini Index": "Gini_Index",
-            "COVID Deaths / mil": "COVID_Deaths"
+            "Life Expectancy": "LIFE_EXPECTANCY", # Corrected key
+            "GDP per Capita": "GDP_PER_CAPITA",   # Corrected key
+            "Gini Index": "GINI_INDEX",           # Corrected key
+            "COVID Deaths / mil": "COVID_DEATHS",  # Corrected key
+            "Population Density": "POPULATION_DENSITY" # Added another one for completeness
         }
 
         cols = st.columns(2)
@@ -137,14 +157,14 @@ if click_data and click_data.get("points"):
             # Create Plotly Line Chart
             fig_line = px.line(
                 country_df,
-                x="Year",
+                x="YEAR", # Use 'YEAR'
                 y=col,
                 markers=True,
                 title=label
             )
             fig_line.update_layout(
                 height=300,
-                template="plotly_dark", # Use consistent dark template
+                template="plotly_dark",
                 paper_bgcolor="#0E1117",
                 plot_bgcolor="#0E1117",
                 margin=dict(t=40, b=10, l=10, r=10)
