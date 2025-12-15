@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import folium
+from streamlit_folium import st_folium
+# NEW IMPORT
+import reverse_geocode 
 
 # -----------------------------
 # 1. Page Config
@@ -12,7 +16,7 @@ st.set_page_config(
 )
 
 # -----------------------------
-# 2. Load Data (Your verified file loading logic)
+# 2. Load Data (Verified Correct)
 # -----------------------------
 @st.cache_data
 def load_data():
@@ -43,10 +47,9 @@ def load_data():
 df, hex_map = load_data()
 years = sorted(df["YEAR"].unique())
 
-# Get a sorted list of unique country names for the select box (as a fallback)
 country_list = sorted(df["COUNTRY"].unique())
+country_name_to_iso = dict(zip(df["COUNTRY"], df["ISO3"]))
 
-# Initialize session state for the selected ISO code
 if 'selected_iso' not in st.session_state:
     st.session_state.selected_iso = None
 
@@ -65,69 +68,67 @@ year = st.slider(
 )
 
 # --- Fallback Select Box ---
-selected_country_name = st.selectbox(
+selected_country_name_fallback = st.selectbox(
     "1. Select a Country for Detailed Analysis (Fallback)",
     options=[None] + country_list,
     index=0
 )
-if selected_country_name:
-    # Set session state from the select box
-    st.session_state.selected_iso = df[df["COUNTRY"] == selected_country_name]["ISO3"].iloc[0]
+if selected_country_name_fallback:
+    st.session_state.selected_iso = country_name_to_iso.get(selected_country_name_fallback)
 
-
-# Filter Map Data for the selected year
-map_df = df[df["YEAR"] == year].copy()
-map_df["HEX"] = map_df["ISO3"].map(hex_map)
-
-# World Map (Choropleth figure creation)
-fig = px.choropleth(
-    map_df,
-    locations="ISO3",
-    color="ISO3", 
-    hover_name="COUNTRY", 
-    color_discrete_map=hex_map,
-    title=f"Global Health Overview – {year}"
-)
-
-# Customize map appearance for dark theme
-fig.update_layout(
-    geo=dict(
-        showframe=False,
-        showcoastlines=True,
-        coastlinecolor="white",
-        showocean=True, oceancolor="#0E1117", 
-        showland=True, landcolor="#1a1a1a",
-        projection_type="natural earth"
-    ),
-    paper_bgcolor="#0E1117",
-    plot_bgcolor="#0E1117",
-    margin=dict(t=50, b=0, l=0, r=0),
-    showlegend=False
-)
 
 # ----------------------------------------------------
-# 4. Render Map & Capture Click State (Critical Fix)
+# 4. Render Folium Map & Capture Click (FINAL LOGIC)
 # ----------------------------------------------------
 
-# This component returns selection data on rerun and stores it in session state
-st.plotly_chart(
-    fig,
+# Create a Folium map object centered globally
+m = folium.Map(location=[10, 0], zoom_start=2, tiles="cartodbdarkmatter", control_scale=True)
+
+# Render the Folium map and capture the click event
+map_data = st_folium(
+    m, 
+    height=500, 
+    width='100%', 
     use_container_width=True,
-    on_select="rerun", 
-    selection_mode="points",
-    key="map_click_event" # Key where the click data is stored
+    key="folium_map_click",
+    returned_objects=["last_clicked"] 
 )
 
-# Check for map click data AFTER the rerun
-if "map_click_event" in st.session_state and st.session_state["map_click_event"] and st.session_state["map_click_event"].get("points"):
+# Attempt to capture the click data and perform reverse geocoding
+if map_data and map_data.get("last_clicked"):
+    lat = map_data["last_clicked"]["lat"]
+    lon = map_data["last_clicked"]["lng"]
     
-    # 1. Store the clicked ISO code in the main session state variable
-    clicked_iso = st.session_state["map_click_event"]["points"][0]["location"]
-    st.session_state.selected_iso = clicked_iso
+    coordinates = [(lat, lon)]
     
-    # 2. CRITICAL FIX: Explicitly clear the selection to allow the next click to be detected
-    # If the selection isn't cleared, Streamlit thinks the map state hasn't changed.
-    st.session_state["map_click_event"] = {"points": [], "point_indices": [], "box": [], "lasso": []}
+    try:
+        # Perform reverse geocoding to get country info
+        results = reverse_geocode.search(coordinates)
+        
+        # 'reverse-geocode' returns the two-letter country code (e.g., 'IN' for India)
+        # We need the three-letter ISO3 code for filtering your DataFrame.
+        # Since your DF only contains the three-letter code, we need a small helper function.
+        
+        country_code_2_letter = results[0]['country_code'].upper()
+        
+        # Simple mapping to get the full country name for lookup in your DF
+        # The reverse-geocode library returns the 2-letter code.
+        # We will use the full name (e.g., 'India') to find the ISO3 (e.g., 'IND').
+        country_name_from_click = results[0]['country'] 
+        
+        # --- LOOKUP in YOUR DataFrame ---
+        # Find the ISO3 code in your main data based on the country name
+        clicked_iso = df[df["COUNTRY"] == country_name_from_click]["ISO3"].iloc[0]
+        
+        if clicked_iso:
+            st.session_state.selected_iso = clicked_iso
+        else:
+            # Handle case where the country name isn't in your DataFrame (e.g., an ocean click)
+            st.info(f"Clicked on '{country_name_from_click}', but this country is not in your data set.")
+            
+    except Exception as e:
+        # Handle failures (e.g., clicking on water, or mapping error)
+        st.warning(f"Could not resolve location: {e}")
 
 
 # -----------------------------
@@ -184,6 +185,6 @@ if selected_iso:
                 st.plotly_chart(fig_line, use_container_width=True)
 
     else:
-        st.info(f"No detailed data available for {country_name} in year {year}.")
+        st.info(f"No detailed data available for the selected country.")
 else:
     st.info("👆 Click any country on the map or use the Select Box to view detailed insights.")
