@@ -4,155 +4,139 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # -----------------------------
-# Init & Config
+# Page Config
 # -----------------------------
 st.set_page_config(
     page_title="Global Health Dashboard",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="wide"
 )
 
 # -----------------------------
-# Load Data (Important: Ensure 'final_with_socio_cleaned.csv' is present)
+# Load Data
 # -----------------------------
 @st.cache_data
 def load_data():
-    """Loads and processes the main DataFrame."""
-    try:
-        # NOTE: Make sure your CSV file is in the same directory!
-        df = pd.read_csv("final_with_socio_cleaned.csv")
-        df["Year"] = df["Year"].astype(int)
-        df["ISO3"] = df["ISO3"].str.strip()
-        df["Country"] = df["Country"].str.strip()
-    except FileNotFoundError:
-        st.error("Error: 'final_with_socio_cleaned.csv' not found.")
-        st.stop() # Stop execution if data is missing
+    df = pd.read_csv("final_with_socio_cleaned.csv")
+    hex_df = pd.read_csv("Hex.csv")
 
-    # Add a dummy hex_map or remove it if not needed for this version
-    hex_map = {} 
+    df["Year"] = df["Year"].astype(int)
+    df["ISO3"] = df["ISO3"].str.strip()
+    df["Country"] = df["Country"].str.strip()
+
+    hex_df["ISO3"] = hex_df["ISO3"].str.strip()
+    hex_map = dict(zip(hex_df["ISO3"], hex_df["hex"]))
+
     return df, hex_map
 
-# Global Data initialization
-df = pd.DataFrame()
-years = [] 
-
-try:
-    df, _ = load_data()
-    if df.empty:
-        st.stop()
-    years = sorted(df["Year"].unique())
-except Exception as e:
-    st.error(f"FATAL ERROR: Failed to process data. Details: {e}")
-    st.stop()
-
-# ----------------------------------------------------
-# Chart Function: Displays charts in the main body
-# ----------------------------------------------------
-def display_country_charts_in_main(iso_code, data_frame, container):
-    """Renders charts inside a standard container without rerunning the app."""
-    
-    country_data = data_frame[data_frame["ISO3"] == iso_code].sort_values(by="Year")
-    
-    if country_data.empty:
-        container.info("No detailed historical data available.")
-        return
-
-    country_name = country_data.iloc[0]["Country"]
-    container.markdown(f"## 📈 Historical Analysis for {country_name}")
-    container.markdown("---")
-
-    # Define the indicators for the time series charts
-    indicators = {
-        "HDI": "HDI", "GDP per Capita": "GDP_per_capita", "Life Expectancy": "Life_Expectancy", 
-        "Median Age": "Median_Age_Est", "Gini Index": "Gini_Index", 
-        "COVID Deaths / mil": "COVID_Deaths", "Population Density": "Population_Density"
-    }
-
-    cols = container.columns(2)
-
-    for i, (title, col_name) in enumerate(indicators.items()):
-        if col_name in country_data.columns:
-            # Create a Plotly line chart
-            fig_line = go.Figure()
-            fig_line.add_trace(go.Scatter(
-                x=country_data["Year"], y=country_data[col_name], mode="lines+markers",
-                line=dict(color='#00CC96', width=2), marker=dict(size=4)
-            ))
-
-            fig_line.update_layout(
-                title=dict(text=title, font=dict(size=14)), template="plotly_dark", height=250,
-                margin=dict(t=30, b=10, l=10, r=10),
-                xaxis=dict(title=None, showgrid=False), # Hide x-axis title/grid for cleaner look
-                yaxis=dict(showgrid=True, gridcolor='#333'),
-                paper_bgcolor="#0E1117", plot_bgcolor="rgba(0,0,0,0)"
-            )
-
-            with cols[i % 2]:
-                st.plotly_chart(fig_line, use_container_width=True)
-
+df, hex_map = load_data()
+years = sorted(df["Year"].unique())
 
 # -----------------------------
-# Main Layout: Map & Controls
+# Title
 # -----------------------------
 st.markdown("<h2 style='text-align:center;'>🌍 Global Health Dashboard</h2>", unsafe_allow_html=True)
 
-# Year Slider
+# -----------------------------
+# Year Slider (MAIN PAGE)
+# -----------------------------
 year = st.slider(
-    "Select Year", min_value=int(min(years)), max_value=int(max(years)), value=int(max(years)), step=1
+    "Select Year",
+    min_value=int(min(years)),
+    max_value=int(max(years)),
+    value=int(max(years))
 )
 
-# Filter Data and Create Map
-map_df = df[df["Year"] == year]
+# -----------------------------
+# Map Data
+# -----------------------------
+map_df = df[df["Year"] == year].copy()
+map_df["hex"] = map_df["ISO3"].map(hex_map)
 
+# -----------------------------
+# World Map (HEX colors)
+# -----------------------------
 fig = px.choropleth(
-    map_df, locations="ISO3", color="HDI", hover_name="Country", color_continuous_scale="Viridis",
-    range_color=[0, 1], title=f"Global HDI Map – {year}"
+    map_df,
+    locations="ISO3",
+    color="ISO3",
+    hover_name="Country",
+    color_discrete_map=hex_map,
+    title=f"Global Health Overview – {year}"
 )
 
-# Customize map appearance for dark theme
 fig.update_layout(
     geo=dict(
-        showframe=False, showcoastlines=True, coastlinecolor="white", 
-        showocean=True, oceancolor="#0E1117", # Set ocean color to match dark background
-        showland=True, landcolor="#1a1a1a", projection_type="natural earth" 
+        showframe=False,
+        showcoastlines=True,
+        coastlinecolor="white",
+        projection_type="natural earth"
     ),
-    paper_bgcolor="#0E1117", plot_bgcolor="#0E1117", 
-    margin=dict(t=50, b=0, l=0, r=0), 
-    coloraxis_colorbar=dict(title="HDI")
+    paper_bgcolor="#0E1117",
+    plot_bgcolor="#0E1117",
+    margin=dict(t=50, b=0, l=0, r=0),
+    showlegend=False
 )
 
-# ----------------------------------------------------
-# Render Map and Detect Click State
-# ----------------------------------------------------
-
-# Render the map and store the selection data in st.session_state["global_map"]
-st.plotly_chart(
-    fig, 
-    use_container_width=True, 
-    key="global_map" 
+# -----------------------------
+# Render Map & Capture Click
+# -----------------------------
+click_data = st.plotly_chart(
+    fig,
+    use_container_width=True
 )
 
-# Get the selection data directly from the session state
-selection = st.session_state.get("global_map")
-selected_iso = None
-
-# Extract the ISO code from the map click event
-if selection and selection.get("points"):
-    selected_iso = selection["points"][0]["location"]
-
-
-# ----------------------------------------------------
-# Display Permanent Chart Section
-# ----------------------------------------------------
+# -----------------------------
+# Country Details Section
+# -----------------------------
 st.markdown("---")
-st.markdown("## Detailed Country Analysis", unsafe_allow_html=True)
+st.markdown("## 📊 Country Detailed Analysis")
 
-# Create a dedicated container for the historical charts
-chart_container = st.container()
+if click_data and "points" in click_data:
+    iso = click_data["points"][0]["location"]
+    country_df = df[df["ISO3"] == iso].sort_values("Year")
 
-if selected_iso:
-    # If a country is selected, display the charts inside the container
-    display_country_charts_in_main(selected_iso, df, chart_container)
+    country_name = country_df.iloc[0]["Country"]
+    st.subheader(country_name)
+
+    # -------- KPIs --------
+    latest = country_df[country_df["Year"] == year]
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("HDI", round(latest["HDI"].values[0], 3))
+    k2.metric("Life Expectancy", round(latest["Life_Expectancy"].values[0], 1))
+    k3.metric("GDP per Capita", f"${int(latest['GDP_per_capita'].values[0])}")
+    k4.metric("Median Age", round(latest["Median_Age_Est"].values[0], 1))
+
+    st.markdown("---")
+
+    # -------- Line Charts --------
+    indicators = {
+        "HDI": "HDI",
+        "Life Expectancy": "Life_Expectancy",
+        "GDP per Capita": "GDP_per_capita",
+        "Gini Index": "Gini_Index",
+        "COVID Deaths / mil": "COVID_Deaths"
+    }
+
+    cols = st.columns(2)
+
+    for i, (label, col) in enumerate(indicators.items()):
+        fig_line = px.line(
+            country_df,
+            x="Year",
+            y=col,
+            markers=True,
+            title=label
+        )
+        fig_line.update_layout(
+            height=300,
+            paper_bgcolor="#0E1117",
+            plot_bgcolor="#0E1117",
+            margin=dict(t=40, b=10, l=10, r=10)
+        )
+
+        with cols[i % 2]:
+            st.plotly_chart(fig_line, use_container_width=True)
+
 else:
-    # If nothing is selected, display a helpful prompt
-    chart_container.info("Click a country on the map above to view its historical health and economic data.")
+    st.info("👆 Click any country on the map above to view detailed insights.")
