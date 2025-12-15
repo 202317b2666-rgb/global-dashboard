@@ -1,6 +1,6 @@
 streamlit
 pandas
 plotly
-streamlit-float
+folium
+streamlit-folium
 streamlit-plotly-events
-streamlit-shadcn-ui
