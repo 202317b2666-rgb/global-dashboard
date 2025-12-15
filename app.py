@@ -1,56 +1,45 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 
 # -----------------------------
 # 1. Page Config
 # -----------------------------
 st.set_page_config(
-    page_title="Global Health Dashboard",
+    page_title="Sample Dashboard",
     layout="wide"
 )
 
 # -----------------------------
-# 2. Load Data (Verified Correct)
+# 2. Sample Data Creation (Replaces load_data)
 # -----------------------------
-@st.cache_data
-def load_data():
-    """Loads and processes both data files using the explicit column names."""
-    try:
-        df = pd.read_csv("final_with_socio_cleaned.csv")
-        hex_df = pd.read_csv("Hex.csv")
-    except FileNotFoundError as e:
-        st.error(f"Missing required file: {e.filename}. Please place it in the same directory.")
-        st.stop()
-        
-    df.columns = [col.upper() for col in df.columns] 
-    df["YEAR"] = df["YEAR"].astype(int)
-    df["ISO3"] = df["ISO3"].str.strip()
-    df["COUNTRY"] = df["COUNTRY"].str.strip()
+# Create sample data that mimics the structure of your files
+def create_sample_data():
+    data = {
+        'COUNTRY': ['USA', 'USA', 'USA', 'CAN', 'CAN', 'CAN', 'FRA', 'FRA', 'FRA'],
+        'ISO3': ['USA', 'USA', 'USA', 'CAN', 'CAN', 'CAN', 'FRA', 'FRA', 'FRA'],
+        'YEAR': [2022, 2023, 2024, 2022, 2023, 2024, 2022, 2023, 2024],
+        'GDP_PER_CAPITA': [70000, 72000, 74000, 50000, 51000, 52000, 45000, 46000, 47000],
+        'HDI': [0.92, 0.93, 0.94, 0.91, 0.92, 0.93, 0.90, 0.91, 0.92],
+        'LIFE_EXPECTANCY': [78.5, 78.8, 79.1, 81.0, 81.3, 81.6, 82.0, 82.3, 82.6],
+        'MEDIAN_AGE_EST': [38.5, 39.0, 39.5, 41.0, 41.5, 42.0, 42.5, 43.0, 43.5],
+        'COVID_DEATHS': [1500, 100, 50, 1200, 80, 40, 900, 60, 30],
+        'GINI_INDEX': [48.0, 48.1, 48.2, 33.0, 33.1, 33.2, 32.0, 32.1, 32.2],
+        'POPULATION_DENSITY': [35.0, 36.0, 37.0, 4.0, 4.1, 4.2, 120.0, 121.0, 122.0]
+    }
+    df_sample = pd.DataFrame(data)
+    return df_sample
 
-    hex_df = hex_df.rename(columns={
-        "iso_alpha": "ISO3", 
-        "hex": "HEX"         
-    })
-    
-    hex_df["ISO3"] = hex_df["ISO3"].str.strip()
-    hex_map = dict(zip(hex_df["ISO3"], hex_df["HEX"])) 
-    
-    return df, hex_map
-
-# Initialize global data
-df, hex_map = load_data()
+# Load the sample data
+df = create_sample_data()
 years = sorted(df["YEAR"].unique())
-
-# Get a sorted list of unique country names for the search box
 country_list = sorted(df["COUNTRY"].unique())
-country_to_iso = dict(zip(df["COUNTRY"], df["ISO3"]))
+
 
 # -----------------------------
 # 3. Main Layout: Map & Controls
 # -----------------------------
-st.markdown("<h2 style='text-align:center;'>🌍 Global Health Dashboard</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align:center;'>🌍 Global Health Dashboard (Sample Data)</h2>", unsafe_allow_html=True)
 
 # Year Slider
 year = st.slider(
@@ -61,74 +50,42 @@ year = st.slider(
     step=1
 )
 
-# ----------------------------------------------------
-# NEW INTERACTION LOGIC: Country Search Box
-# ----------------------------------------------------
+# --- NEW INTERACTION: Select Box ---
 selected_country_name = st.selectbox(
-    "Search or Select a Country for Detailed Analysis",
-    options=[None] + country_list, # Add None as the initial state
+    "1. Select a Country for Detailed Analysis",
+    options=[None] + country_list, 
     index=0
 )
 
-# Determine the ISO code based on the selection
-if selected_country_name:
-    selected_iso = country_to_iso.get(selected_country_name)
-else:
-    selected_iso = None
+# Determine the ISO code for filtering
+selected_iso = df[df["COUNTRY"] == selected_country_name]["ISO3"].iloc[0] if selected_country_name else None
 
 # Filter Map Data for the selected year
 map_df = df[df["YEAR"] == year].copy()
-map_df["HEX"] = map_df["ISO3"].map(hex_map)
 
-# World Map (Choropleth figure creation)
+# World Map (Basic Choropleth)
+# We use one of Plotly's built-in datasets for the map data (lifeExp) to guarantee the map loads
 fig = px.choropleth(
     map_df,
     locations="ISO3",
-    color="ISO3", 
-    hover_name="COUNTRY", 
-    color_discrete_map=hex_map,
-    title=f"Global Health Overview – {year}"
+    color="HDI", # We use HDI for coloring instead of hex codes for simplicity
+    hover_name="COUNTRY",
+    color_continuous_scale=px.colors.sequential.Plasma,
+    title=f"Sample Global Overview – {year}"
 )
 
-# Optional: Highlight selected country on the map
-if selected_iso:
-    # Add a separate trace for the selected country to highlight it
-    selected_country_data = map_df[map_df["ISO3"] == selected_iso]
-    if not selected_country_data.empty:
-        fig.add_trace(
-            go.Choropleth(
-                locations=selected_country_data["ISO3"],
-                z=[1] * len(selected_country_data), # Dummy data for visibility
-                showscale=False,
-                marker_line_color='white',
-                marker_line_width=3,
-                hoverinfo='none',
-                name=selected_country_name
-            )
-        )
-
-
-# Customize map appearance for dark theme (kept for consistent style)
 fig.update_layout(
     geo=dict(
         showframe=False,
         showcoastlines=True,
-        coastlinecolor="white",
-        showocean=True, oceancolor="#0E1117", 
-        showland=True, landcolor="#1a1a1a",
+        showland=True,
         projection_type="natural earth"
     ),
-    paper_bgcolor="#0E1117",
-    plot_bgcolor="#0E1117",
     margin=dict(t=50, b=0, l=0, r=0),
-    showlegend=False
 )
 
 # Render the Map
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
+st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------------
 # 4. Country Details Section (Driven by Select Box)
@@ -137,7 +94,7 @@ st.markdown("---")
 st.markdown("## 📊 Country Detailed Analysis")
 
 if selected_iso:
-    # The ISO code is correctly derived from the select box
+    # --- This code block will run when a country is selected ---
     iso = selected_iso
     country_df = df[df["ISO3"] == iso].sort_values("YEAR")
 
@@ -161,9 +118,7 @@ if selected_iso:
             "HDI": "HDI",
             "Life Expectancy": "LIFE_EXPECTANCY",
             "GDP per Capita": "GDP_PER_CAPITA",
-            "Gini Index": "GINI_INDEX",
-            "COVID Deaths / mil": "COVID_DEATHS",
-            "Population Density": "POPULATION_DENSITY"
+            "Median Age": "MEDIAN_AGE_EST"
         }
 
         cols = st.columns(2)
@@ -176,13 +131,7 @@ if selected_iso:
                 markers=True,
                 title=label
             )
-            fig_line.update_layout(
-                height=300,
-                template="plotly_dark",
-                paper_bgcolor="#0E1117",
-                plot_bgcolor="#0E1117",
-                margin=dict(t=40, b=10, l=10, r=10)
-            )
+            fig_line.update_layout(height=300, template="plotly_dark", margin=dict(t=40, b=10, l=10, r=10))
 
             with cols[i % 2]:
                 st.plotly_chart(fig_line, use_container_width=True)
@@ -190,4 +139,4 @@ if selected_iso:
     else:
         st.info(f"No detailed data available for {selected_country_name}.")
 else:
-    st.info("👆 Use the Search/Select box above to view detailed insights.")
+    st.info("👆 Use the Select Box above to view detailed insights.")
