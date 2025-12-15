@@ -22,12 +22,11 @@ def load_data():
         df = pd.read_csv("final_with_socio_cleaned.csv")
         hex_df = pd.read_csv("Hex.csv")
     except FileNotFoundError as e:
-        # Display a clear error if files are missing
         st.error(f"Missing required file: {e.filename}. Please place it in the same directory.")
         st.stop()
         
     # --- Standardize and Clean final_with_socio_cleaned.csv (df) ---
-    # Convert all columns to uppercase for consistent access (e.g., 'Year' -> 'YEAR')
+    # Convert all columns to uppercase for consistent access
     df.columns = [col.upper() for col in df.columns] 
     
     # Cleaning/Type Conversion
@@ -36,10 +35,10 @@ def load_data():
     df["COUNTRY"] = df["COUNTRY"].str.strip()
 
     # --- Standardize and Clean Hex.csv (hex_df) ---
-    # Rename the specific columns based on your provided headers
+    # Rename the specific columns based on your provided headers (iso_alpha -> ISO3, hex -> HEX)
     hex_df = hex_df.rename(columns={
-        "iso_alpha": "ISO3", # Rename 'iso_alpha' to 'ISO3'
-        "hex": "HEX"         # Rename 'hex' to 'HEX'
+        "iso_alpha": "ISO3", 
+        "hex": "HEX"         
     })
     
     # Strip whitespace from the code column
@@ -52,7 +51,6 @@ def load_data():
 
 # Initialize global data
 df, hex_map = load_data()
-# Use the corrected uppercase column name 'YEAR'
 years = sorted(df["YEAR"].unique())
 
 # -----------------------------
@@ -69,7 +67,7 @@ year = st.slider(
     step=1
 )
 
-# Filter Map Data for the selected year (Use 'YEAR')
+# Filter Map Data for the selected year
 map_df = df[df["YEAR"] == year].copy()
 map_df["HEX"] = map_df["ISO3"].map(hex_map)
 
@@ -78,7 +76,7 @@ fig = px.choropleth(
     map_df,
     locations="ISO3",
     color="ISO3", 
-    hover_name="COUNTRY", # Use 'COUNTRY'
+    hover_name="COUNTRY", 
     color_discrete_map=hex_map,
     title=f"Global Health Overview – {year}"
 )
@@ -99,15 +97,36 @@ fig.update_layout(
     showlegend=False
 )
 
-# -----------------------------
-# 4. Render Map & Capture Click State (Stable Method)
-# -----------------------------
-# Use a key to store the click data in st.session_state
+# ----------------------------------------------------
+# 4. Render Map & Capture Click State (DEFINITIVE FIX)
+# ----------------------------------------------------
+
+# Define the callback function to handle map selection
+def update_click_state():
+    """Reads selection from map, stores it in state, and triggers rerun."""
+    # The key "map_selection" holds the data when the map is clicked
+    selection = st.session_state.get("map_selection")
+    
+    if selection and selection.get("points"):
+        clicked_iso = selection["points"][0]["location"]
+        # Store the ISO code in a dedicated state variable
+        st.session_state.last_clicked_iso = clicked_iso
+        st.rerun() # <-- CRITICAL: Force a clean script rerun immediately
+    
+# Initialize necessary session state variable
+if 'last_clicked_iso' not in st.session_state:
+    st.session_state.last_clicked_iso = None
+
+
+# Render the Map with the callback
 st.plotly_chart(
     fig,
     use_container_width=True,
-    key="country_map" 
+    on_select=update_click_state, # <-- Attach the callback here
+    selection_mode="points",
+    key="map_selection" # <-- Key used by the callback to read data
 )
+
 
 # -----------------------------
 # 5. Country Details Section
@@ -115,40 +134,37 @@ st.plotly_chart(
 st.markdown("---")
 st.markdown("## 📊 Country Detailed Analysis")
 
-# Check session state for map click data
-click_data = st.session_state.get("country_map")
+# Use the reliably stored ISO code from the session state
+selected_iso = st.session_state.last_clicked_iso
 
-if click_data and click_data.get("points"):
-    # Extract the ISO code of the clicked country
-    iso = click_data["points"][0]["location"]
-    # Use 'YEAR' for sorting
+if selected_iso:
+    # The ISO code is now correctly stored and available
+    iso = selected_iso
     country_df = df[df["ISO3"] == iso].sort_values("YEAR")
 
     if not country_df.empty:
-        # Use 'COUNTRY'
         country_name = country_df.iloc[0]["COUNTRY"]
         st.subheader(country_name)
 
         # -------- KPIs --------
-        # Use 'YEAR'
         latest = country_df[country_df["YEAR"] == year].iloc[0] 
 
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("HDI", round(latest["HDI"], 3)) # Use 'HDI'
-        k2.metric("Life Expectancy", f"{round(latest['LIFE_EXPECTANCY'], 1)} Yrs") # Use 'LIFE_EXPECTANCY'
-        k3.metric("GDP per Capita", f"${int(latest['GDP_PER_CAPITA']):,}") # Use 'GDP_PER_CAPITA'
-        k4.metric("Median Age", f"{round(latest['MEDIAN_AGE_EST'], 1)} Yrs") # Use 'MEDIAN_AGE_EST'
+        k1.metric("HDI", round(latest["HDI"], 3))
+        k2.metric("Life Expectancy", f"{round(latest['LIFE_EXPECTANCY'], 1)} Yrs")
+        k3.metric("GDP per Capita", f"${int(latest['GDP_PER_CAPITA']):,}")
+        k4.metric("Median Age", f"{round(latest['MEDIAN_AGE_EST'], 1)} Yrs")
 
         st.markdown("---")
 
         # -------- Historical Line Charts --------
         indicators = {
             "HDI": "HDI",
-            "Life Expectancy": "LIFE_EXPECTANCY", # Corrected key
-            "GDP per Capita": "GDP_PER_CAPITA",   # Corrected key
-            "Gini Index": "GINI_INDEX",           # Corrected key
-            "COVID Deaths / mil": "COVID_DEATHS",  # Corrected key
-            "Population Density": "POPULATION_DENSITY" # Added another one for completeness
+            "Life Expectancy": "LIFE_EXPECTANCY",
+            "GDP per Capita": "GDP_PER_CAPITA",
+            "Gini Index": "GINI_INDEX",
+            "COVID Deaths / mil": "COVID_DEATHS",
+            "Population Density": "POPULATION_DENSITY"
         }
 
         cols = st.columns(2)
@@ -157,7 +173,7 @@ if click_data and click_data.get("points"):
             # Create Plotly Line Chart
             fig_line = px.line(
                 country_df,
-                x="YEAR", # Use 'YEAR'
+                x="YEAR",
                 y=col,
                 markers=True,
                 title=label
