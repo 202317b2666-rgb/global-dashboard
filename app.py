@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 
 # -----------------------------
 # Page Config
@@ -19,11 +18,16 @@ def load_data():
     df = pd.read_csv("final_with_socio_cleaned.csv")
     hex_df = pd.read_csv("Hex.csv")
 
+    # ---- Clean main dataset ----
     df["Year"] = df["Year"].astype(int)
     df["ISO3"] = df["ISO3"].str.strip()
     df["Country"] = df["Country"].str.strip()
 
+    # ---- Clean HEX dataset ----
+    hex_df.columns = hex_df.columns.str.lower().str.strip()
+    hex_df.rename(columns={"iso_alpha": "ISO3"}, inplace=True)
     hex_df["ISO3"] = hex_df["ISO3"].str.strip()
+
     hex_map = dict(zip(hex_df["ISO3"], hex_df["hex"]))
 
     return df, hex_map
@@ -37,23 +41,32 @@ years = sorted(df["Year"].unique())
 st.markdown("<h2 style='text-align:center;'>🌍 Global Health Dashboard</h2>", unsafe_allow_html=True)
 
 # -----------------------------
-# Year Slider (MAIN PAGE)
+# Controls (MAIN PAGE)
 # -----------------------------
-year = st.slider(
-    "Select Year",
-    min_value=int(min(years)),
-    max_value=int(max(years)),
-    value=int(max(years))
-)
+c1, c2 = st.columns([2, 1])
+
+with c1:
+    year = st.slider(
+        "Select Year",
+        min_value=int(min(years)),
+        max_value=int(max(years)),
+        value=int(max(years))
+    )
+
+with c2:
+    country_list = sorted(df["Country"].unique())
+    selected_country = st.selectbox(
+        "Select Country",
+        country_list
+    )
 
 # -----------------------------
 # Map Data
 # -----------------------------
 map_df = df[df["Year"] == year].copy()
-map_df["hex"] = map_df["ISO3"].map(hex_map)
 
 # -----------------------------
-# World Map (HEX colors)
+# World Map (HEX Colors)
 # -----------------------------
 fig = px.choropleth(
     map_df,
@@ -77,13 +90,7 @@ fig.update_layout(
     showlegend=False
 )
 
-# -----------------------------
-# Render Map & Capture Click
-# -----------------------------
-click_data = st.plotly_chart(
-    fig,
-    use_container_width=True
-)
+st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------------
 # Country Details Section
@@ -91,52 +98,45 @@ click_data = st.plotly_chart(
 st.markdown("---")
 st.markdown("## 📊 Country Detailed Analysis")
 
-if click_data and "points" in click_data:
-    iso = click_data["points"][0]["location"]
-    country_df = df[df["ISO3"] == iso].sort_values("Year")
+country_df = df[df["Country"] == selected_country].sort_values("Year")
+iso = country_df.iloc[0]["ISO3"]
 
-    country_name = country_df.iloc[0]["Country"]
-    st.subheader(country_name)
+latest = country_df[country_df["Year"] == year]
 
-    # -------- KPIs --------
-    latest = country_df[country_df["Year"] == year]
+# ---- KPIs ----
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("HDI", round(latest["HDI"].values[0], 3))
+k2.metric("Life Expectancy", round(latest["Life_Expectancy"].values[0], 1))
+k3.metric("GDP per Capita", f"${int(latest['GDP_per_capita'].values[0])}")
+k4.metric("Median Age", round(latest["Median_Age_Est"].values[0], 1))
 
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("HDI", round(latest["HDI"].values[0], 3))
-    k2.metric("Life Expectancy", round(latest["Life_Expectancy"].values[0], 1))
-    k3.metric("GDP per Capita", f"${int(latest['GDP_per_capita'].values[0])}")
-    k4.metric("Median Age", round(latest["Median_Age_Est"].values[0], 1))
+st.markdown("---")
 
-    st.markdown("---")
+# ---- Line Charts ----
+indicators = {
+    "HDI": "HDI",
+    "Life Expectancy": "Life_Expectancy",
+    "GDP per Capita": "GDP_per_capita",
+    "Gini Index": "Gini_Index",
+    "COVID Deaths / mil": "COVID_Deaths"
+}
 
-    # -------- Line Charts --------
-    indicators = {
-        "HDI": "HDI",
-        "Life Expectancy": "Life_Expectancy",
-        "GDP per Capita": "GDP_per_capita",
-        "Gini Index": "Gini_Index",
-        "COVID Deaths / mil": "COVID_Deaths"
-    }
+cols = st.columns(2)
 
-    cols = st.columns(2)
+for i, (label, col) in enumerate(indicators.items()):
+    fig_line = px.line(
+        country_df,
+        x="Year",
+        y=col,
+        markers=True,
+        title=label
+    )
+    fig_line.update_layout(
+        height=300,
+        paper_bgcolor="#0E1117",
+        plot_bgcolor="#0E1117",
+        margin=dict(t=40, b=10, l=10, r=10)
+    )
 
-    for i, (label, col) in enumerate(indicators.items()):
-        fig_line = px.line(
-            country_df,
-            x="Year",
-            y=col,
-            markers=True,
-            title=label
-        )
-        fig_line.update_layout(
-            height=300,
-            paper_bgcolor="#0E1117",
-            plot_bgcolor="#0E1117",
-            margin=dict(t=40, b=10, l=10, r=10)
-        )
-
-        with cols[i % 2]:
-            st.plotly_chart(fig_line, use_container_width=True)
-
-else:
-    st.info("👆 Click any country on the map above to view detailed insights.")
+    with cols[i % 2]:
+        st.plotly_chart(fig_line, use_container_width=True)
