@@ -64,14 +64,14 @@ year = st.slider(
     step=1
 )
 
-# --- Fallback Select Box (Hidden after debugging) ---
-# Keeping the select box logic separate allows us to test the map logic exclusively
+# --- Fallback Select Box ---
 selected_country_name = st.selectbox(
     "1. Select a Country for Detailed Analysis (Fallback)",
     options=[None] + country_list,
     index=0
 )
 if selected_country_name:
+    # Set session state from the select box
     st.session_state.selected_iso = df[df["COUNTRY"] == selected_country_name]["ISO3"].iloc[0]
 
 
@@ -106,27 +106,28 @@ fig.update_layout(
 )
 
 # ----------------------------------------------------
-# 4. Render Map & Capture Click State (Standard Streamlit Rerun)
+# 4. Render Map & Capture Click State (Critical Fix)
 # ----------------------------------------------------
 
-click_data = st.plotly_chart(
+# This component returns selection data on rerun and stores it in session state
+st.plotly_chart(
     fig,
     use_container_width=True,
-    # This is the key instruction: rerun the app on selection
     on_select="rerun", 
     selection_mode="points",
-    key="map_click_event"
+    key="map_click_event" # Key where the click data is stored
 )
 
 # Check for map click data AFTER the rerun
 if "map_click_event" in st.session_state and st.session_state["map_click_event"] and st.session_state["map_click_event"].get("points"):
     
-    # Store the clicked ISO code in the main session state variable
+    # 1. Store the clicked ISO code in the main session state variable
     clicked_iso = st.session_state["map_click_event"]["points"][0]["location"]
     st.session_state.selected_iso = clicked_iso
     
-    # Reset the selection data to allow clicking the same country again
-    st.session_state["map_click_event"] = None
+    # 2. CRITICAL FIX: Explicitly clear the selection to allow the next click to be detected
+    # If the selection isn't cleared, Streamlit thinks the map state hasn't changed.
+    st.session_state["map_click_event"] = {"points": [], "point_indices": [], "box": [], "lasso": []}
 
 
 # -----------------------------
