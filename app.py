@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-# We removed the dependency on streamlit-plotly-events
 
 # -----------------------------
 # 1. Page Config
@@ -44,6 +43,10 @@ def load_data():
 df, hex_map = load_data()
 years = sorted(df["YEAR"].unique())
 
+# Get a sorted list of unique country names for the search box
+country_list = sorted(df["COUNTRY"].unique())
+country_to_iso = dict(zip(df["COUNTRY"], df["ISO3"]))
+
 # -----------------------------
 # 3. Main Layout: Map & Controls
 # -----------------------------
@@ -57,6 +60,21 @@ year = st.slider(
     value=int(max(years)),
     step=1
 )
+
+# ----------------------------------------------------
+# NEW INTERACTION LOGIC: Country Search Box
+# ----------------------------------------------------
+selected_country_name = st.selectbox(
+    "Search or Select a Country for Detailed Analysis",
+    options=[None] + country_list, # Add None as the initial state
+    index=0
+)
+
+# Determine the ISO code based on the selection
+if selected_country_name:
+    selected_iso = country_to_iso.get(selected_country_name)
+else:
+    selected_iso = None
 
 # Filter Map Data for the selected year
 map_df = df[df["YEAR"] == year].copy()
@@ -72,7 +90,25 @@ fig = px.choropleth(
     title=f"Global Health Overview – {year}"
 )
 
-# Customize map appearance for dark theme
+# Optional: Highlight selected country on the map
+if selected_iso:
+    # Add a separate trace for the selected country to highlight it
+    selected_country_data = map_df[map_df["ISO3"] == selected_iso]
+    if not selected_country_data.empty:
+        fig.add_trace(
+            go.Choropleth(
+                locations=selected_country_data["ISO3"],
+                z=[1] * len(selected_country_data), # Dummy data for visibility
+                showscale=False,
+                marker_line_color='white',
+                marker_line_width=3,
+                hoverinfo='none',
+                name=selected_country_name
+            )
+        )
+
+
+# Customize map appearance for dark theme (kept for consistent style)
 fig.update_layout(
     geo=dict(
         showframe=False,
@@ -88,86 +124,70 @@ fig.update_layout(
     showlegend=False
 )
 
-# ----------------------------------------------------
-# 4. Render Map & Capture Click State (Standard Streamlit Rerun)
-# ----------------------------------------------------
-
-# This method returns the selection data and forces a rerun.
-click_data = st.plotly_chart(
+# Render the Map
+st.plotly_chart(
     fig,
-    use_container_width=True,
-    # This is the key that tells Streamlit to look for clicks and rerun the script
-    on_select="rerun", 
-    selection_mode="points",
-    key="map_selection_key"
+    use_container_width=True
 )
 
 # -----------------------------
-# 5. Country Details Section
+# 4. Country Details Section (Driven by Select Box)
 # -----------------------------
 st.markdown("---")
 st.markdown("## 📊 Country Detailed Analysis")
 
-# Check if the map returned click data AND that data is available in session state
-if "map_selection_key" in st.session_state and st.session_state["map_selection_key"] and st.session_state["map_selection_key"].get("points"):
-    
-    # Extract the ISO code from the returned selection data
-    iso = st.session_state["map_selection_key"]["points"][0]["location"] 
+if selected_iso:
+    # The ISO code is correctly derived from the select box
+    iso = selected_iso
+    country_df = df[df["ISO3"] == iso].sort_values("YEAR")
 
-    if iso:
-        # Filter the DataFrame for the selected country
-        country_df = df[df["ISO3"] == iso].sort_values("YEAR")
+    if not country_df.empty:
+        country_name = country_df.iloc[0]["COUNTRY"]
+        st.subheader(country_name)
 
-        if not country_df.empty:
-            country_name = country_df.iloc[0]["COUNTRY"]
-            st.subheader(country_name)
+        # -------- KPIs --------
+        latest = country_df[country_df["YEAR"] == year].iloc[0] 
 
-            # -------- KPIs --------
-            latest = country_df[country_df["YEAR"] == year].iloc[0] 
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("HDI", round(latest["HDI"], 3))
+        k2.metric("Life Expectancy", f"{round(latest['LIFE_EXPECTANCY'], 1)} Yrs")
+        k3.metric("GDP per Capita", f"${int(latest['GDP_PER_CAPITA']):,}")
+        k4.metric("Median Age", f"{round(latest['MEDIAN_AGE_EST'], 1)} Yrs")
 
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("HDI", round(latest["HDI"], 3))
-            k2.metric("Life Expectancy", f"{round(latest['LIFE_EXPECTANCY'], 1)} Yrs")
-            k3.metric("GDP per Capita", f"${int(latest['GDP_PER_CAPITA']):,}")
-            k4.metric("Median Age", f"{round(latest['MEDIAN_AGE_EST'], 1)} Yrs")
+        st.markdown("---")
 
-            st.markdown("---")
+        # -------- Historical Line Charts --------
+        indicators = {
+            "HDI": "HDI",
+            "Life Expectancy": "LIFE_EXPECTANCY",
+            "GDP per Capita": "GDP_PER_CAPITA",
+            "Gini Index": "GINI_INDEX",
+            "COVID Deaths / mil": "COVID_DEATHS",
+            "Population Density": "POPULATION_DENSITY"
+        }
 
-            # -------- Historical Line Charts --------
-            indicators = {
-                "HDI": "HDI",
-                "Life Expectancy": "LIFE_EXPECTANCY",
-                "GDP per Capita": "GDP_PER_CAPITA",
-                "Gini Index": "GINI_INDEX",
-                "COVID Deaths / mil": "COVID_DEATHS",
-                "Population Density": "POPULATION_DENSITY"
-            }
+        cols = st.columns(2)
 
-            cols = st.columns(2)
+        for i, (label, col) in enumerate(indicators.items()):
+            fig_line = px.line(
+                country_df,
+                x="YEAR",
+                y=col,
+                markers=True,
+                title=label
+            )
+            fig_line.update_layout(
+                height=300,
+                template="plotly_dark",
+                paper_bgcolor="#0E1117",
+                plot_bgcolor="#0E1117",
+                margin=dict(t=40, b=10, l=10, r=10)
+            )
 
-            for i, (label, col) in enumerate(indicators.items()):
-                # Create Plotly Line Chart
-                fig_line = px.line(
-                    country_df,
-                    x="YEAR",
-                    y=col,
-                    markers=True,
-                    title=label
-                )
-                fig_line.update_layout(
-                    height=300,
-                    template="plotly_dark",
-                    paper_bgcolor="#0E1117",
-                    plot_bgcolor="#0E1117",
-                    margin=dict(t=40, b=10, l=10, r=10)
-                )
+            with cols[i % 2]:
+                st.plotly_chart(fig_line, use_container_width=True)
 
-                with cols[i % 2]:
-                    st.plotly_chart(fig_line, use_container_width=True)
-
-        else:
-            st.info("No detailed data available for the selected country.")
     else:
-        st.info("👆 Click any country on the map above to view detailed insights.")
+        st.info(f"No detailed data available for {selected_country_name}.")
 else:
-    st.info("👆 Click any country on the map above to view detailed insights.")
+    st.info("👆 Use the Search/Select box above to view detailed insights.")
